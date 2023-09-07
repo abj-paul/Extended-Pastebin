@@ -1,2 +1,5 @@
 * About
 Usual Pastebin with scalable implementation and protection against malicious use through intuition detection 
+
+* Top Level Diagram
+[[./resources/top-level-diagram.png]]
