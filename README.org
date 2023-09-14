@@ -5,5 +5,27 @@ Usual Pastebin with scalable implementation and protection against malicious use
 npm install express mysql2 body-parser
 #+end_src
 
+* V1 - A monolithic structure of Pastebin
+The following is a demo video on our v1 pastebin.
+[[https://drive.google.com/file/d/1PIPV9YDk86QpfQ-kVqLJ5Wp47eGHvRzt/view?usp=drive_link][demo video link]]
+
+
+We have the following endpoints in current monolithics structure.
+#+begin_src text
+  - POST /api/paste
+  - POST /api/paste/expiry
+  - GET /api/paste/content/:id
+  - GET /api/paste/content
+#+end_src
+
+And the following services.
+#+begin_src text
+  - Delete Expired Pastes
+  - Generate Unique URL 
+#+end_src
+
+This is our current frontend.
+[[file:resources/v1-demo.png]]
+
 * Top Level Diagram
 [[./resources/top-level-diagram.png]]
