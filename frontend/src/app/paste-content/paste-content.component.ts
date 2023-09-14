@@ -10,6 +10,7 @@ import { ConstantService } from '../services/constant.service';
 export class PasteContentComponent {
   pasteId: string | null = null;
   pasteContent: string = '';
+  pasteURL: string = '';
 
   constructor(private http : HttpClient, private constant : ConstantService){}
 
@@ -18,6 +19,7 @@ export class PasteContentComponent {
       "content" : this.pasteContent
     }).subscribe((response)=>{
       this.pasteId = response.id;
+      this.pasteURL = this.constant.getServerAddress()+"/api/paste/content?url="+response.url;
     });
   }
 

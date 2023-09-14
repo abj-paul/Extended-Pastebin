@@ -2,7 +2,7 @@
 
 <div class="app-paste">
     <div *ngIf="pasteId">
-      <h3>Your Paste ID: {{ pasteId }}</h3>
+      <p>Your Paste URL: {{ pasteURL }}</p>
       <button (click)="reset()">Create Another Paste</button>
     </div>
     <div *ngIf="!pasteId">

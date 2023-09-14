@@ -1,7 +1,7 @@
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
-const bodyParser = require('body-parser');
+const crypto = require('crypto');
 
 const app = express();
 const port = 3000;
@@ -33,10 +33,11 @@ app.use(cors());
 app.post('/api/paste', (req, res) => {
   const content = req.body.content;
   const expire_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const URL = generateUniqueURL(content);
 
   db.query(
-    'INSERT INTO pastes (content, expire_at) VALUES (?, ?)',
-    [content, expire_at],
+    'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
+      [content, expire_at, URL],
     (err, results) => {
       if (err) {
         console.error('Error creating a paste: ' + err);
@@ -44,7 +45,7 @@ app.post('/api/paste', (req, res) => {
         return;
       }
 
-      res.status(201).json({ id: results.insertId });
+	res.status(201).json({ id: results.insertId, url: URL });
     }
   );
 });
@@ -54,10 +55,11 @@ app.post('/api/paste/expiry', (req, res) => {
     const content = req.body.content;
     const expire_after_seconds = req.body.expiry; // In seconds
     const expire_at = new Date(Date.now() + expire_after_seconds * 1000); // 24 hours
+    const URL = generateUniqueURL(content);
 
   db.query(
-    'INSERT INTO pastes (content, expire_at) VALUES (?, ?)',
-    [content, expire_at],
+    'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
+      [content, expire_at, URL],
     (err, results) => {
       if (err) {
         console.error('Error creating a paste: ' + err);
@@ -65,13 +67,13 @@ app.post('/api/paste/expiry', (req, res) => {
         return;
       }
 
-      res.status(201).json({ id: results.insertId });
+	res.status(201).json({ id: results.insertId, url: URL });
     }
   );
 });
 
 // Retrieve a paste by ID
-app.get('/api/paste/:id', (req, res) => {
+app.get('/api/paste/content/:id', (req, res) => {
   const id = req.params.id;
 
   db.query('SELECT content FROM pastes WHERE id = ?', [id], (err, results) => {
@@ -89,6 +91,32 @@ app.get('/api/paste/:id', (req, res) => {
   });
 });
 
+// Create a GET endpoint for retrieving content by URL
+app.get('/api/paste/content', (req, res) => {
+    const URL = req.query.url;
+    console.log(`DEBUG: ${URL}`);
+
+    if (!URL) {
+	return res.status(400).json({ error: 'URL parameter is missing' });
+    }
+    
+    // Assuming you have a database table named 'pastes' with columns 'id' and 'content'
+    db.query('SELECT content FROM pastes WHERE URL = ?', [URL], (err, results) => {
+	if (err) {
+	    console.error('Error retrieving content: ' + err);
+	    res.status(500).json({ error: 'Internal server error' });
+	    return;
+	}
+	
+	if (results.length === 0) {
+	    res.status(404).json({ error: 'Paste not found' });
+	    return;
+	}
+
+    res.status(200).send(results[0].content);
+  });
+});
+
 // Job to delete old pastes
 function deleteExpiredPastes() {
   const now = new Date();
@@ -102,6 +130,20 @@ function deleteExpiredPastes() {
     console.log(`Deleted ${results.affectedRows} expired pastes.`);
   });
 }
+
+
+// Function to generate a unique URL
+function generateUniqueURL(content) {
+  const timestamp = new Date().getTime().toString();
+  const uniqueString = content + timestamp;
+
+  const hash = crypto.createHash('sha256').update(uniqueString).digest('hex');
+
+  const uniqueURL = hash.slice(0, 6);
+  return uniqueURL;
+}
+
+
 
 // Set up a periodic check (e.g., every hour)
 const checkInterval = 60 * 60 * 1000; // 1 hour in milliseconds
