@@ -1,5 +1,9 @@
 * About
 Usual Pastebin with scalable implementation and protection against malicious use through intuition detection 
+** Installation
+#+begin_src bash
+npm install express mysql2 body-parser
+#+end_src
 
 * Top Level Diagram
 [[./resources/top-level-diagram.png]]

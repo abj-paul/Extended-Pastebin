@@ -1,0 +1,8 @@
+* Incremental Improvement
+1. Start with monolithic pastebin
+2. Separate them
+3. Separate API Gateway
+4. Distribute them
+5. Use Proxy for load balancing
+6. Use caching
+7. Cache
