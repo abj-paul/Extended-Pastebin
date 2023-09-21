@@ -15,7 +15,6 @@ First we will develop a simple monolith of pastebin. The backend is in nodejs an
 The following is a demo video on our v1 pastebin.
 [[https://drive.google.com/file/d/1PIPV9YDk86QpfQ-kVqLJ5Wp47eGHvRzt/view?usp=drive_link][demo video link]]
 
-
 We have the following endpoints in current monolithics structure.
 #+begin_src text
   - POST /api/paste
@@ -208,6 +207,9 @@ And the following jobs/business logic.
   });
 
 #+end_src
+** Scaling Monolith
+[[file:resources/microservice-Scaling Monolith.drawio.png]]
+
 * From monolith into microservice
 Note that, our microservice share the same database because there is no chance of a race condition among microservices so we won't have any overhead related to that. Our single mysql server will be hosted at ~http://10.100.12.26~.
 ** PasteService (pasteService.js):
@@ -221,7 +223,7 @@ This microservice handles paste creation, retrieval by ID, and deletion of old p
 
   const app = express();
   const port = 3001; // Change the port for this service
-  const DATABASE_HOST = "https://10.100.12.26";
+  const DATABASE_HOST = "mysql";
   const DATABASE_USER = "abhidb";
   const DATABASE_PASSWORD = "admin";
   const DATABASE_NAME = "pastebin";
@@ -343,7 +345,7 @@ This microservice retrieves paste content by URL.
 
       const app = express();
       const port = 3003; // Change the port for this service
-      const DATABASE_HOST = "localhost";
+      const DATABASE_HOST = "mysql";
       const DATABASE_USER = "abhidb";
       const DATABASE_PASSWORD = "admin";
       const DATABASE_NAME = "pastebin";
@@ -381,6 +383,7 @@ Now, we have separated your code into three microservices. Each microservice can
 
 These microservices will run independently and serve their specific functionalities. We will no containerzie them and  then use a reverse proxy or an API gateway to route requests to the appropriate microservice based on the URL path. We will add logging-monitoring functionalities and finally, we will discuss on scaling.
 * Containerizing Mircoservices
+[[file:resources/microservice-Initial Microservice.drawio.png]]
 ** Dockerfile for PasteService (Dockerfile.paste):
 #+begin_src text
   
@@ -471,14 +474,18 @@ networks:
 #+end_src
 
 In the
-* TODO Nginx as Reverse Proxy
+* Nginx as Reverse Proxy
 We use an Nginx reverse proxy in our Docker Compose setup to route requests to the microservices. 
+[[file:resources/microservice-Nginx.drawio.png]]
 ** Explaining Nginx Configuration File
 1. Server Hostname resolution
-2. 
+2. Nginx user
+3. Multiprocess Nginx with 1024 connections.
+4. DNS Lookup.
+5. Host-Based Routing.
 ** Nginx Configurations
 #+begin_src text
-	user nginx;
+user nginx;
 worker_processes auto;
 error_log /var/log/nginx/error.log;
 pid /run/nginx.pid;
@@ -615,40 +622,75 @@ networks:
   deso-post-service-network:
   
 #+end_src
-* TODO Distributing Microservices
-
-FIG HERE
-
-* TODO DNS or Service Discovery
+* Distributing Microservices
+[[file:resources/microservice-Nginx.drawio.png]]
+No, it is not complete!
+[[file:resources/microservice-DNS.drawio.png]]
+* DNS or Service Discovery
+** Set DNS Server for each distributed system
+10.100.12.26
 Ensure that DNS or service discovery is set up correctly so that Nginx can resolve the backend server addresses.
 #+begin_src bash
     sudo nano /etc/resolv.conf
 
-    nameserver 8.8.8.8
+    nameserver 10.100.32.12
     nameserver 8.8.4.4
 #+end_src
-
-We can set up a DNS server using Bind9.
+** Setting up DNS Records
+We can set up a DNS server using Bind9. An example of the bind9 ~Zone File~ can be:
+- Caching
+- Authority Delegation
+- Distributed DNS
+- Type of DNS Record (e.g. IN, A)
 #+begin_src bash
-; BIND data file for example.com
-;
-$TTL    604800
-@       IN      SOA     ns1.example.com. admin.example.com. (
-                2022091501 ; Serial
-                86400      ; Refresh
-                7200       ; Retry
-                2419200    ; Expire
-                604800 )   ; Default TTL
-;
-@       IN      NS      ns1.example.com.
-@       IN      A       192.168.1.100
-www     IN      A       192.168.1.100
+$TTL 1D
+@   IN SOA  ns1.example.com. admin.example.com. (
+    2023091501 ; Serial
+    1D         ; Refresh
+    2H         ; Retry
+    1W         ; Expire
+    1D )       ; Minimum TTL
+
+; Name Servers
+@   IN  NS  ns1.example.com.
+
+; DNS Server Hostname to IP Address Mapping
+ns1.example.com. IN  A   <IP_Address_of_NS1>
+
+; Content Backend Servers
+content-service-server1.example.com.  IN  A  <IP_Address_Server1>
+content-service-server2.example.com.  IN  A  <IP_Address_Server2>
+content-service-server3.example.com.  IN  A  <IP_Address_Server3>
+content-service-server4.example.com.  IN  A  <IP_Address_Server4>
+
+; Shortening Backend Servers
+shortening-service-server1.example.com.  IN  A  <IP_Address_Server1>
+shortening-service-server2.example.com.  IN  A  <IP_Address_Server2>
+
+; Paste Backend Servers
+paste-service-server1.example.com.  IN  A  <IP_Address_Server1>
+paste-service-server2.example.com.  IN  A  <IP_Address_Server2>
+
+#+end_src
+
+** What is Zone?
+#+begin_src text
+zone "example.com" {
+    type master;
+    file "/etc/bind/zones/example.com.zone"; // Path to your zone file
+};
+
 #+end_src
 
 Docker Swarm and Kubernetes provide service discovery out of the box.
-* TODO Replicating Server & Updated DNS
+* Replicating Server & Updated DNS
+1. We use only one reverse proxy and DNS server for ease of demonstration. In practice, more are used based on geographical location of the servers.
+2. The database is not still just one server. We scale it later on.
+[[file:resources/microservice-Replication.drawio.png]]
 * Load Balancing
 Use Nginx to implement load balancing if needed. Nginx can distribute incoming requests evenly among multiple backend servers to balance the load.
+
+- Round robin is the default algorithm for load balancing.
 
 #+begin_src text
     upstream content_backend {
@@ -676,7 +718,7 @@ So now, we will replace this
         server_name extended-pastebin.com;
 
         location /paste {
-            proxy_pass http://paste-service:3001;
+            proxy_pass http://paste_backend:3001;
         }
     }
   
@@ -707,7 +749,7 @@ There are different types of caching layers you can use:
 
 4. HTTP Caching: Use HTTP headers like Cache-Control and ETag to instruct clients (browsers) to cache responses for a certain period.
 ** Implementing Caching
-We will use Redis for caching.
+We will use Redis for caching. Here, we are caching minio objects against their URL for faster retrieval. Usually, we can deploy redis on a dedicated server of its own for caching.
 
 #+begin_src js
    const redis = require('redis');
@@ -748,14 +790,12 @@ We will use Redis for caching.
    });
 
    });
-
-
 #+end_src
 * Indexing
 We will index on the short_url table. 
-FIG HERE
+[[file:resources/microservice-Table Schema.drawio.png]]
 We will do secondary indexing on custom_url.
-* Analytics
+* TODO Analytics
 HDFS storage for analytical data.
 #+begin_src js
   const hdfs = require('hdfs');
@@ -796,7 +836,7 @@ hdfsClient.writeFile(hdfsFilePath, jsonData, (err) => {
 hdfsClient.close();
 
 #+end_src
-* Messaging Queues
+* TODO Messaging Queues
 Integrating HDFS with Apache Kafka in a distributed system is a common practice for streaming data ingestion and storage. This allows you to capture and store real-time analytical data from various sources. Below, I'll provide a high-level overview and code examples for integrating HDFS and Kafka in a Node.js application.
 
 **Note**: Before proceeding, make sure you have Apache Kafka and Hadoop HDFS installed and configured in your environment.
@@ -895,7 +935,7 @@ Integrating HDFS with Apache Kafka in a distributed system is a common practice 
 
 This setup demonstrates a basic integration of Kafka and HDFS for real-time data ingestion and storage. Depending on your specific use case, you may need to enhance error handling, implement data serialization/deserialization, and optimize your Kafka and HDFS configurations for performance and reliability.
 
-* Scaling
+* TODO Scaling
 Scaling a Pastebin system involves increasing its capacity to handle more users, data, and traffic. Here are steps you can take to scale your Pastebin system:
 
 1. **Vertical Scaling**:
@@ -967,7 +1007,7 @@ Scaling a Pastebin system involves increasing its capacity to handle more users,
     - Regularly test and benchmark your system's performance to identify bottlenecks and optimize resource allocation.
 
 Scaling a Pastebin system is an ongoing process that requires continuous monitoring, analysis, and adjustments to accommodate growing user demands. Depending on your specific requirements and resources, you may choose different scaling strategies.
-* Sharding
+* TODO Sharding
 Implementing database sharding in Node.js typically involves using a database management system that supports sharding, such as MongoDB or PostgreSQL. Below, I'll provide an example of sharding in Node.js using MongoDB, which is a NoSQL database known for its sharding capabilities.
 
 **Note**: This is a simplified example to illustrate the concept. In a production environment, database sharding involves more complex configurations and considerations.
@@ -1074,3 +1114,4 @@ Implementing database sharding in Node.js typically involves using a database ma
    As your data grows, you can add more shards to your MongoDB cluster. MongoDB's sharding configuration allows for horizontal scaling by distributing data across multiple shard servers.
 
 This example demonstrates the basic concept of database sharding using MongoDB in a Node.js environment. In a production setting, you would configure your MongoDB cluster for high availability, backup, and monitoring to ensure optimal performance and data distribution. Additionally, you would design your shard key based on your specific use case and data distribution requirements.
+* Q/A
