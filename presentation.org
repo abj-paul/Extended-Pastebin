@@ -91,8 +91,8 @@ And the following jobs/business logic.
       const URL = generateUniqueURL(objectURL);
 
 	db.query(
-	    'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
-	    [content, expire_at, URL],
+	    'INSERT INTO pastes (minioURL, expire_at, URL) VALUES (?, ?, ?)',
+	    [objectURL, expire_at, URL],
 	(err, results) => {
 	    if (err) {
 		console.error('Error creating a paste: ' + err);
@@ -130,7 +130,7 @@ And the following jobs/business logic.
   app.get('/api/paste/content/:id', (req, res) => {
     const id = req.params.id;
 
-    db.query('SELECT content FROM pastes WHERE id = ?', [id], (err, results) => {
+    db.query('SELECT objectURL FROM pastes WHERE id = ?', [id], (err, results) => {
       if (err) {
 	console.error('Error retrieving paste: ' + err);
 	res.status(500).json({ error: 'Internal server error' });
@@ -266,7 +266,7 @@ This microservice handles paste creation, retrieval by ID, and deletion of old p
 
 
 	db.query(
-	    'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
+	    'INSERT INTO pastes (objectURL, expire_at, URL) VALUES (?, ?, ?)',
 	    [content, expire_at, URL],
 	(err, results) => {
 	    if (err) {
@@ -338,51 +338,37 @@ This microservice manages the URL shortening functionality.
 This microservice retrieves paste content by URL.
 
 #+begin_src js
-    const express = require('express');
-    const mysql = require('mysql2');
+      const express = require('express');
+      const mysql = require('mysql2');
 
-    const app = express();
-    const port = 3003; // Change the port for this service
-    const DATABASE_HOST = "localhost";
-    const DATABASE_USER = "abhidb";
-    const DATABASE_PASSWORD = "admin";
-    const DATABASE_NAME = "pastebin";
+      const app = express();
+      const port = 3003; // Change the port for this service
+      const DATABASE_HOST = "localhost";
+      const DATABASE_USER = "abhidb";
+      const DATABASE_PASSWORD = "admin";
+      const DATABASE_NAME = "pastebin";
 
-    const db = mysql.createConnection({
-      host: DATABASE_HOST,
-      user: DATABASE_USER,
-      password: DATABASE_PASSWORD,
-      database: DATABASE_NAME
+      const db = mysql.createConnection({
+	host: DATABASE_HOST,
+	user: DATABASE_USER,
+	password: DATABASE_PASSWORD,
+	database: DATABASE_NAME
+      });
+
+  app.get('/getObject', async (req, res) => {
+      const bucketName = '';
+      const objectName = await db.query(
+	    'SELECT objectURL from pastes WHERE URL=?',[URL]);
+
+      const res = await minioClient.getObject(bucketName, objectName);
+      res.setHeader('Content-Type', 'image/jpeg'); // Adjust as needed
+      dataStream.pipe(res);
+  });
+
+    app.listen(port, () => {
+	console.log(`ContentService listening on port ${port}`);
     });
 
-  app.get('/api/paste/content', (req, res) => {
-      const URL = req.query.url;
-      console.log(`DEBUG: ${URL}`);
-
-      if (!URL) {
-	  return res.status(400).json({ error: 'URL parameter is missing' });
-      }
-
-      // Assuming you have a database table named 'pastes' with columns 'id' and 'content'
-      db.query('SELECT content FROM pastes WHERE URL = ?', [URL], (err, results) => {
-	  if (err) {
-	      console.error('Error retrieving content: ' + err);
-	      res.status(500).json({ error: 'Internal server error' });
-	      return;
-	  }
-
-	  if (results.length === 0) {
-	      res.status(404).json({ error: 'Paste not found' });
-	      return;
-	  }
-
-	  res.status(200).send(results[0].content);
-      });
-  });
-  app.listen(port, () => {
-      console.log(`ContentService listening on port ${port}`);
-  });
-  
 #+end_src
 ** Executing
 Now, we have separated your code into three microservices. Each microservice can be run as a separate Node.js application by executing its respective JavaScript file (pasteService.js, shorteningService.js, and contentService.js) using the node command.
@@ -485,4 +471,606 @@ networks:
 #+end_src
 
 In the
-* Distributing Microservices
+* TODO Nginx as Reverse Proxy
+We use an Nginx reverse proxy in our Docker Compose setup to route requests to the microservices. 
+** Explaining Nginx Configuration File
+1. Server Hostname resolution
+2. 
+** Nginx Configurations
+#+begin_src text
+	user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+    sendfile on;
+
+    # Route requests to PasteService
+    server {
+        listen 80;
+        server_name extended-pastebin.com;
+
+        location /paste {
+            proxy_pass http://paste-service:3001;
+        }
+    }
+
+    # Route requests to ShorteningService
+    server {
+        listen 80;
+        server_name extended-pastebin.com;
+
+        location /shorten {
+            proxy_pass http://shortening-service:3002;
+        }
+    }
+
+    # Route requests to ContentService
+    server {
+        listen 80;
+        server_name extended-pastebin.com;
+
+        location /content {
+            proxy_pass http://content-service:3003;
+        }
+    }
+
+    # Handle 404 errors
+    error_page 404 /404.html;
+    location = /404.html {
+        root /usr/share/nginx/html;
+    }
+
+    # Handle 500 errors
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}
+#+end_src
+** Updated docker-compose.yml
+#+begin_src text
+version: '3'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_DATABASE: 'DeSo'
+      MYSQL_USER: 'abhidb'
+      MYSQL_PASSWORD: 'admin'
+      MYSQL_ROOT_PASSWORD: 'admin'
+    networks:
+      - deso-post-service-network
+
+  paste-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.paste
+    ports:
+      - "3001:3001"
+    networks:
+      - deso-post-service-network
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - /data
+    networks:
+      - deso-post-service-network
+    environment:
+      MINIO_ROOT_USER: wBl9YHNf6XXfdMbWu0MS
+      MINIO_ROOT_PASSWORD: fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM
+    command: ["server", "--console-address", ":9001", "/data"]
+
+  shortening-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.shortening
+    ports:
+      - "3002:3002"
+    networks:
+      - deso-post-service-network
+
+  content-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.content
+    ports:
+      - "3003:3003"
+    depends_on:
+      - paste-service
+      - shortening-service
+    networks:
+      - deso-post-service-network
+
+  nginx:
+    image: nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - deso-post-service-network
+
+networks:
+  deso-post-service-network:
+  
+#+end_src
+* TODO Distributing Microservices
+
+FIG HERE
+
+* TODO DNS or Service Discovery
+Ensure that DNS or service discovery is set up correctly so that Nginx can resolve the backend server addresses.
+#+begin_src bash
+    sudo nano /etc/resolv.conf
+
+    nameserver 8.8.8.8
+    nameserver 8.8.4.4
+#+end_src
+
+We can set up a DNS server using Bind9.
+#+begin_src bash
+; BIND data file for example.com
+;
+$TTL    604800
+@       IN      SOA     ns1.example.com. admin.example.com. (
+                2022091501 ; Serial
+                86400      ; Refresh
+                7200       ; Retry
+                2419200    ; Expire
+                604800 )   ; Default TTL
+;
+@       IN      NS      ns1.example.com.
+@       IN      A       192.168.1.100
+www     IN      A       192.168.1.100
+#+end_src
+
+Docker Swarm and Kubernetes provide service discovery out of the box.
+* TODO Replicating Server & Updated DNS
+* Load Balancing
+Use Nginx to implement load balancing if needed. Nginx can distribute incoming requests evenly among multiple backend servers to balance the load.
+
+#+begin_src text
+    upstream content_backend {
+	server content-service-server1;
+	server content-service-server2;
+	server content-service-server3;
+	server content-service-server4;
+    }
+
+    upstream shortening_backend {
+	server shortening-service-server1;
+	server shortening-service-server2;
+    }
+  upstream paste_backend {
+      server paste-service-server1;
+      server paste-service-server2;
+      }
+  
+#+end_src
+
+So now, we will replace this
+#+begin_src text
+    server {
+        listen 80;
+        server_name extended-pastebin.com;
+
+        location /paste {
+            proxy_pass http://paste-service:3001;
+        }
+    }
+  
+#+end_src
+
+with this.
+
+#+begin_src text
+    server {
+        listen 80;
+        server_name extended-pastebin.com;
+
+        location /paste {
+            proxy_pass http://paste_backend:3001;
+        }
+    }
+  
+#+end_src
+* Caching
+** Choose a Caching Layer
+There are different types of caching layers you can use:
+
+1. In-Memory Caching: This stores cache data in memory, making it extremely fast but limited by available RAM. Popular in-memory caching solutions include Redis and Memcached.
+
+2. Content Delivery Networks (CDNs): CDNs like Cloudflare and Akamai cache static assets (e.g., images, CSS, and JavaScript) at edge locations, reducing latency for users worldwide.
+
+3. Database Query Caching: Some databases offer built-in query caching. For example, MySQL has query cache functionality that can cache frequently accessed query results.
+
+4. HTTP Caching: Use HTTP headers like Cache-Control and ETag to instruct clients (browsers) to cache responses for a certain period.
+** Implementing Caching
+We will use Redis for caching.
+
+#+begin_src js
+   const redis = require('redis');
+   const client = redis.createClient();
+
+   // Function to cache a (Minio URL, Minio Object) pair
+   function cacheMinioObject(minioURL, minioObject) {
+       client.set(minioURL, minioObject);
+   }
+
+   // Function to retrieve a Minio Object from cache
+   function getMinioObject(minioURL, callback) {
+       client.get(minioURL, (err, minioObject) => {
+	   if (err) {
+	       console.error('Error retrieving from cache:', err);
+	       callback(null); // Handle the error gracefully
+	   } else {
+	       callback(minioObject); // Return the Minio Object from cache
+	   }
+       });
+   }
+
+
+  app.get('/getObject', async (req, res) => {
+      getMinioObject(minioURL, (cachedMinioObject) => {
+       if (cachedMinioObject) {
+	   res.setHeader('Content-Type', 'image/jpeg'); // Adjust as needed
+	   dataStream.pipe(cachedMinioObject);
+       } else {
+       const bucketName = 'pastes';
+       const objectName = await db.query(
+	     'SELECT objectURL from pastes WHERE URL=?',[URL]);
+
+       const res = await minioClient.getObject(bucketName, objectName);
+       res.setHeader('Content-Type', 'image/jpeg'); // Adjust as needed
+       dataStream.pipe(res);
+       }
+   });
+
+   });
+
+
+#+end_src
+* Indexing
+We will index on the short_url table. 
+FIG HERE
+We will do secondary indexing on custom_url.
+* Analytics
+HDFS storage for analytical data.
+#+begin_src js
+  const hdfs = require('hdfs');
+
+// Configure HDFS connection
+const hdfsClient = hdfs.createClient({
+  host: 'your-hdfs-host', // HDFS host address
+  port: 9000,              // HDFS port (default is 9000)
+  user: 'hdfs',            // HDFS user (usually 'hdfs' or 'your-username')
+});
+
+// Define the data to be stored
+const analyticalData = {
+  // Your analytical data in JSON format
+  timestamp: Date.now(),
+  user_id: 'user123',
+  action: 'view_paste',
+  paste_id: 'paste456',
+  // Add more fields as needed
+};
+
+// Convert data to JSON string
+const jsonData = JSON.stringify(analyticalData);
+
+// Define the HDFS file path where data will be stored
+const hdfsFilePath = '/user/hadoop/pastebin_analytics.json'; // Adjust the path as needed
+
+// Write data to HDFS
+hdfsClient.writeFile(hdfsFilePath, jsonData, (err) => {
+  if (err) {
+    console.error('Error writing to HDFS:', err);
+  } else {
+    console.log('Data successfully written to HDFS.');
+  }
+});
+
+// Close the HDFS client (optional)
+hdfsClient.close();
+
+#+end_src
+* Messaging Queues
+Integrating HDFS with Apache Kafka in a distributed system is a common practice for streaming data ingestion and storage. This allows you to capture and store real-time analytical data from various sources. Below, I'll provide a high-level overview and code examples for integrating HDFS and Kafka in a Node.js application.
+
+**Note**: Before proceeding, make sure you have Apache Kafka and Hadoop HDFS installed and configured in your environment.
+
+1. **Install Required Node.js Libraries**:
+
+   Install the necessary Node.js libraries to work with Kafka and HDFS.
+
+   ```bash
+   npm install kafka-node hdfs
+   ```
+
+2. **Producer: Sending Analytical Data to Kafka**:
+
+   Use the Kafka producer to send analytical data to Kafka topics.
+
+   ```javascript
+   const kafka = require('kafka-node');
+   const Producer = kafka.Producer;
+   const client = new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }); // Replace with your Kafka broker address
+   const producer = new Producer(client);
+
+   producer.on('ready', () => {
+     const payloads = [
+       {
+         topic: 'analytical_data_topic',
+         messages: 'Your analytical data JSON string',
+       },
+     ];
+
+     producer.send(payloads, (err, data) => {
+       if (err) {
+         console.error('Error sending data to Kafka:', err);
+       } else {
+         console.log('Data sent to Kafka:', data);
+       }
+     });
+   });
+
+   producer.on('error', (err) => {
+     console.error('Kafka producer error:', err);
+   });
+   ```
+
+3. **Consumer: Receiving Data from Kafka and Storing in HDFS**:
+
+   Use a Kafka consumer to receive data from Kafka topics and store it in HDFS.
+
+   ```javascript
+   const kafka = require('kafka-node');
+   const Consumer = kafka.Consumer;
+   const hdfs = require('hdfs');
+   const hdfsClient = hdfs.createClient({
+     host: 'your-hdfs-host', // Replace with your HDFS host address
+     port: 9000,             // HDFS port (default is 9000)
+     user: 'hdfs',           // HDFS user (usually 'hdfs' or your username)
+   });
+
+   const topics = [{ topic: 'analytical_data_topic' }]; // Replace with your Kafka topic(s)
+   const options = { autoCommit: true, groupId: 'your-consumer-group' }; // Configure your consumer group
+
+   const consumer = new Consumer(new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }), topics, options);
+
+   consumer.on('message', (message) => {
+     // Received message from Kafka
+     const analyticalData = JSON.parse(message.value);
+
+     // Define the HDFS file path where data will be stored
+     const hdfsFilePath = '/user/hadoop/pastebin_analytics.json'; // Adjust the path as needed
+
+     // Convert data to JSON string
+     const jsonData = JSON.stringify(analyticalData);
+
+     // Write data to HDFS
+     hdfsClient.writeFile(hdfsFilePath, jsonData, (err) => {
+       if (err) {
+         console.error('Error writing to HDFS:', err);
+       } else {
+         console.log('Data successfully written to HDFS.');
+       }
+     });
+   });
+
+   consumer.on('error', (err) => {
+     console.error('Kafka consumer error:', err);
+   });
+   ```
+
+4. **Start Producer and Consumer**:
+
+   Run the producer to send data to Kafka, and run the consumer to receive data from Kafka and store it in HDFS.
+
+5. **Configure Kafka and HDFS**:
+
+   Ensure that your Kafka and HDFS configurations (e.g., Kafka topics, HDFS directories, Kafka brokers, HDFS hosts) match your environment.
+
+This setup demonstrates a basic integration of Kafka and HDFS for real-time data ingestion and storage. Depending on your specific use case, you may need to enhance error handling, implement data serialization/deserialization, and optimize your Kafka and HDFS configurations for performance and reliability.
+
+* Scaling
+Scaling a Pastebin system involves increasing its capacity to handle more users, data, and traffic. Here are steps you can take to scale your Pastebin system:
+
+1. **Vertical Scaling**:
+
+   - **Upgrade Hardware**: Increase the resources (CPU, RAM, storage) of your server to handle more concurrent users and larger data volumes.
+
+2. **Horizontal Scaling**:
+
+   - **Load Balancing**: Implement load balancing to distribute incoming traffic across multiple servers. This ensures that no single server becomes a bottleneck.
+
+   - **Database Sharding**: If you're using a relational database, consider sharding the database by partitioning data across multiple database servers. Each shard contains a subset of data, allowing for parallel queries and improved database performance.
+
+   - **Microservices**: Decompose your application into microservices, where each service has a specific function (e.g., user management, paste creation, analytics). Deploy multiple instances of each microservice to handle different parts of the application's workload.
+
+3. **Caching**:
+
+   - Implement caching mechanisms to reduce the load on your database and improve response times. Use in-memory caches like Redis or Memcached for frequently accessed data.
+
+4. **Content Delivery Network (CDN)**:
+
+   - Use a CDN to cache and serve static assets like CSS, JavaScript, and images. CDNs distribute content to edge servers closer to users, reducing latency and server load.
+
+5. **Database Optimization**:
+
+   - Optimize database queries and indexes to improve query performance. Consider denormalization and other database design techniques.
+
+6. **Asynchronous Processing**:
+
+   - Move time-consuming and non-blocking tasks to background jobs or queues. For example, processing uploaded files or sending email notifications can be done asynchronously.
+
+7. **Auto-Scaling**:
+
+   - Implement auto-scaling solutions that automatically add or remove servers based on predefined thresholds. Cloud providers like AWS, Azure, and Google Cloud offer auto-scaling features.
+
+8. **Database Replication**:
+
+   - Set up database replication to create read replicas. This allows you to offload read queries to replica databases, reducing the load on the primary database.
+
+9. **Content Delivery Optimization**:
+
+   - Optimize content delivery by using efficient compression algorithms, image optimization, and minification of CSS and JavaScript files.
+
+10. **Monitoring and Alerts**:
+
+    - Implement robust monitoring and alerting systems to track server performance, detect anomalies, and respond to issues in real-time.
+
+11. **Failover and Redundancy**:
+
+    - Ensure high availability by setting up failover mechanisms and redundancy for critical components such as web servers, databases, and load balancers.
+
+12. **Database Caching and Query Optimization**:
+
+    - Use caching layers like Redis or Memcached to cache frequently queried data and results. Optimize database queries to minimize resource usage.
+
+13. **Content Delivery Strategies**:
+
+    - Explore strategies for delivering content efficiently, such as lazy loading, content pagination, and efficient data retrieval.
+
+14. **Content Management**:
+
+    - Implement content management strategies, such as purging expired pastes, archiving older data, and optimizing data retention policies.
+
+15. **Distributed Systems**:
+
+    - Consider a distributed architecture that spans multiple data centers or cloud regions for improved availability and disaster recovery.
+
+16. **Testing and Benchmarking**:
+
+    - Regularly test and benchmark your system's performance to identify bottlenecks and optimize resource allocation.
+
+Scaling a Pastebin system is an ongoing process that requires continuous monitoring, analysis, and adjustments to accommodate growing user demands. Depending on your specific requirements and resources, you may choose different scaling strategies.
+* Sharding
+Implementing database sharding in Node.js typically involves using a database management system that supports sharding, such as MongoDB or PostgreSQL. Below, I'll provide an example of sharding in Node.js using MongoDB, which is a NoSQL database known for its sharding capabilities.
+
+**Note**: This is a simplified example to illustrate the concept. In a production environment, database sharding involves more complex configurations and considerations.
+
+1. **Install MongoDB and Node.js Packages**:
+
+   Make sure you have MongoDB installed and Node.js set up in your environment. Install the `mongodb` package for Node.js:
+
+   ```bash
+   npm install mongodb
+   ```
+
+2. **Create a MongoDB Cluster**:
+
+   Set up a MongoDB cluster with sharding enabled. This typically involves configuring multiple shard servers, a config server, and a router (mongos).
+
+3. **Connect to MongoDB**:
+
+   Create a Node.js script to connect to your MongoDB cluster. Replace the connection string and database name with your own cluster details:
+
+   ```javascript
+   const { MongoClient } = require('mongodb');
+
+   const uri = 'mongodb://<shard-1>:27017,<shard-2>:27017,<shard-3>:27017/?replicaSet=myReplicaSet';
+   const databaseName = 'mydb';
+
+   async function connectToMongo() {
+     const client = new MongoClient(uri, { useUnifiedTopology: true });
+
+     try {
+       await client.connect();
+       console.log('Connected to MongoDB');
+
+       const db = client.db(databaseName);
+
+       // Perform database operations here
+
+     } finally {
+       await client.close();
+       console.log('Disconnected from MongoDB');
+     }
+   }
+
+   connectToMongo();
+   ```
+
+4. **Create Sharded Collections**:
+
+   In MongoDB, sharding involves distributing data across multiple shards. To shard a collection, you typically choose a shard key based on how you want to distribute the data.
+
+   ```javascript
+   async function createShardedCollection() {
+     const db = client.db(databaseName);
+
+     // Create a sharded collection
+     await db.createCollection('myShardedCollection', {
+       shardKey: { _id: 'hashed' }, // Replace with your shard key
+     });
+
+     console.log('Sharded collection created');
+   }
+
+   createShardedCollection();
+   ```
+
+5. **Insert Data**:
+
+   Insert data into your sharded collection. MongoDB will automatically distribute the data across the shards based on the shard key.
+
+   ```javascript
+   async function insertData() {
+     const db = client.db(databaseName);
+     const collection = db.collection('myShardedCollection');
+
+     // Insert data into the sharded collection
+     const data = { _id: 1, name: 'Example Data' };
+     await collection.insertOne(data);
+
+     console.log('Data inserted into sharded collection');
+   }
+
+   insertData();
+   ```
+
+6. **Query Data**:
+
+   Querying data from a sharded collection is similar to querying a regular collection. MongoDB's routing (mongos) handles the distribution of queries to the appropriate shards.
+
+   ```javascript
+   async function queryData() {
+     const db = client.db(databaseName);
+     const collection = db.collection('myShardedCollection');
+
+     // Query data from the sharded collection
+     const result = await collection.findOne({ _id: 1 });
+     console.log('Query result:', result);
+   }
+
+   queryData();
+   ```
+
+7. **Scaling and Configuration**:
+
+   As your data grows, you can add more shards to your MongoDB cluster. MongoDB's sharding configuration allows for horizontal scaling by distributing data across multiple shard servers.
+
+This example demonstrates the basic concept of database sharding using MongoDB in a Node.js environment. In a production setting, you would configure your MongoDB cluster for high availability, backup, and monitoring to ensure optimal performance and data distribution. Additionally, you would design your shard key based on your specific use case and data distribution requirements.
