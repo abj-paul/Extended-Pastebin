@@ -836,282 +836,184 @@ hdfsClient.writeFile(hdfsFilePath, jsonData, (err) => {
 hdfsClient.close();
 
 #+end_src
-* TODO Messaging Queues
+
+But it has an issue and that is - the hard coupling between the HDFS and the servers. Considering that logging information later does not affect the system in any manner, such hard coupling relationship is unnecessary.
+
+So we will ~decouple~ the HDFS logger from the servers using messgaing queue. Specially because streaming data and realy life analytical data is coming from different sources here. So using channels with messaging queue is a very beneficial design choice.
+* Messaging Queues
 Integrating HDFS with Apache Kafka in a distributed system is a common practice for streaming data ingestion and storage. This allows you to capture and store real-time analytical data from various sources. Below, I'll provide a high-level overview and code examples for integrating HDFS and Kafka in a Node.js application.
 
-**Note**: Before proceeding, make sure you have Apache Kafka and Hadoop HDFS installed and configured in your environment.
 
-1. **Install Required Node.js Libraries**:
 
-   Install the necessary Node.js libraries to work with Kafka and HDFS.
+** Use the Kafka producer to send analytical data to Kafka topics.
+Each server is a producer of log information. So they will contain the following code.
+     #+begin_src js
+       const kafka = require('kafka-node');
+       const Producer = kafka.Producer;
+       const client = new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }); // Replace with your Kafka broker address
+       const producer = new Producer(client);
 
-   ```bash
-   npm install kafka-node hdfs
-   ```
+       producer.on('ready', () => {
+	 const payloads = [
+	   {
+	     topic: 'analytical_data_topic',
+	     messages: 'Your analytical data JSON string',
+	   },
+	 ];
 
-2. **Producer: Sending Analytical Data to Kafka**:
+	 producer.send(payloads, (err, data) => {
+	   if (err) {
+	     console.error('Error sending data to Kafka:', err);
+	   } else {
+	     console.log('Data sent to Kafka:', data);
+	   }
+	 });
+       });
 
-   Use the Kafka producer to send analytical data to Kafka topics.
+       producer.on('error', (err) => {
+	 console.error('Kafka producer error:', err);
+       });
+     #+end_src
 
-   ```javascript
-   const kafka = require('kafka-node');
-   const Producer = kafka.Producer;
-   const client = new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }); // Replace with your Kafka broker address
-   const producer = new Producer(client);
+** Consumer: Receiving Data from Kafka and Storing in HDFS
+Using a Kafka consumer to receive data from Kafka topics and store it in HDFS.
 
-   producer.on('ready', () => {
-     const payloads = [
-       {
-         topic: 'analytical_data_topic',
-         messages: 'Your analytical data JSON string',
-       },
-     ];
+The consumer downloads the data from kafka and saves it in HDFS storage.
 
-     producer.send(payloads, (err, data) => {
-       if (err) {
-         console.error('Error sending data to Kafka:', err);
-       } else {
-         console.log('Data sent to Kafka:', data);
-       }
-     });
-   });
+#+begin_src js
+  const kafka = require('kafka-node');
+  const Consumer = kafka.Consumer;
+  const hdfs = require('hdfs');
+  const hdfsClient = hdfs.createClient({
+    host: 'your-hdfs-host', // Replace with your HDFS host address
+    port: 9000,             // HDFS port (default is 9000)
+    user: 'hdfs',           // HDFS user (usually 'hdfs' or your username)
+  });
 
-   producer.on('error', (err) => {
-     console.error('Kafka producer error:', err);
-   });
-   ```
+  const topics = [{ topic: 'analytical_data_topic' }]; // Replace with your Kafka topic(s)
+  const options = { autoCommit: true, groupId: 'your-consumer-group' }; // Configure your consumer group
 
-3. **Consumer: Receiving Data from Kafka and Storing in HDFS**:
+  const consumer = new Consumer(new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }), topics, options);
 
-   Use a Kafka consumer to receive data from Kafka topics and store it in HDFS.
+  consumer.on('message', (message) => {
+    // Received message from Kafka
+    const analyticalData = JSON.parse(message.value);
 
-   ```javascript
-   const kafka = require('kafka-node');
-   const Consumer = kafka.Consumer;
-   const hdfs = require('hdfs');
-   const hdfsClient = hdfs.createClient({
-     host: 'your-hdfs-host', // Replace with your HDFS host address
-     port: 9000,             // HDFS port (default is 9000)
-     user: 'hdfs',           // HDFS user (usually 'hdfs' or your username)
-   });
+    // Define the HDFS file path where data will be stored
+    const hdfsFilePath = '/user/hadoop/pastebin_analytics.json'; // Adjust the path as needed
 
-   const topics = [{ topic: 'analytical_data_topic' }]; // Replace with your Kafka topic(s)
-   const options = { autoCommit: true, groupId: 'your-consumer-group' }; // Configure your consumer group
+    // Convert data to JSON string
+    const jsonData = JSON.stringify(analyticalData);
 
-   const consumer = new Consumer(new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }), topics, options);
+    // Write data to HDFS
+    hdfsClient.writeFile(hdfsFilePath, jsonData, (err) => {
+      if (err) {
+	console.error('Error writing to HDFS:', err);
+      } else {
+	console.log('Data successfully written to HDFS.');
+      }
+    });
+  });
 
-   consumer.on('message', (message) => {
-     // Received message from Kafka
-     const analyticalData = JSON.parse(message.value);
+  consumer.on('error', (err) => {
+    console.error('Kafka consumer error:', err);
+  });
 
-     // Define the HDFS file path where data will be stored
-     const hdfsFilePath = '/user/hadoop/pastebin_analytics.json'; // Adjust the path as needed
+#+end_src
 
-     // Convert data to JSON string
-     const jsonData = JSON.stringify(analyticalData);
-
-     // Write data to HDFS
-     hdfsClient.writeFile(hdfsFilePath, jsonData, (err) => {
-       if (err) {
-         console.error('Error writing to HDFS:', err);
-       } else {
-         console.log('Data successfully written to HDFS.');
-       }
-     });
-   });
-
-   consumer.on('error', (err) => {
-     console.error('Kafka consumer error:', err);
-   });
-   ```
-
-4. **Start Producer and Consumer**:
-
-   Run the producer to send data to Kafka, and run the consumer to receive data from Kafka and store it in HDFS.
-
-5. **Configure Kafka and HDFS**:
-
-   Ensure that your Kafka and HDFS configurations (e.g., Kafka topics, HDFS directories, Kafka brokers, HDFS hosts) match your environment.
-
-This setup demonstrates a basic integration of Kafka and HDFS for real-time data ingestion and storage. Depending on your specific use case, you may need to enhance error handling, implement data serialization/deserialization, and optimize your Kafka and HDFS configurations for performance and reliability.
-
-* TODO Scaling
-Scaling a Pastebin system involves increasing its capacity to handle more users, data, and traffic. Here are steps you can take to scale your Pastebin system:
-
-1. **Vertical Scaling**:
-
-   - **Upgrade Hardware**: Increase the resources (CPU, RAM, storage) of your server to handle more concurrent users and larger data volumes.
-
-2. **Horizontal Scaling**:
-
-   - **Load Balancing**: Implement load balancing to distribute incoming traffic across multiple servers. This ensures that no single server becomes a bottleneck.
-
-   - **Database Sharding**: If you're using a relational database, consider sharding the database by partitioning data across multiple database servers. Each shard contains a subset of data, allowing for parallel queries and improved database performance.
-
-   - **Microservices**: Decompose your application into microservices, where each service has a specific function (e.g., user management, paste creation, analytics). Deploy multiple instances of each microservice to handle different parts of the application's workload.
-
-3. **Caching**:
-
-   - Implement caching mechanisms to reduce the load on your database and improve response times. Use in-memory caches like Redis or Memcached for frequently accessed data.
-
-4. **Content Delivery Network (CDN)**:
-
-   - Use a CDN to cache and serve static assets like CSS, JavaScript, and images. CDNs distribute content to edge servers closer to users, reducing latency and server load.
-
-5. **Database Optimization**:
-
-   - Optimize database queries and indexes to improve query performance. Consider denormalization and other database design techniques.
-
-6. **Asynchronous Processing**:
-
-   - Move time-consuming and non-blocking tasks to background jobs or queues. For example, processing uploaded files or sending email notifications can be done asynchronously.
-
-7. **Auto-Scaling**:
-
-   - Implement auto-scaling solutions that automatically add or remove servers based on predefined thresholds. Cloud providers like AWS, Azure, and Google Cloud offer auto-scaling features.
-
-8. **Database Replication**:
-
-   - Set up database replication to create read replicas. This allows you to offload read queries to replica databases, reducing the load on the primary database.
-
-9. **Content Delivery Optimization**:
-
-   - Optimize content delivery by using efficient compression algorithms, image optimization, and minification of CSS and JavaScript files.
-
-10. **Monitoring and Alerts**:
-
-    - Implement robust monitoring and alerting systems to track server performance, detect anomalies, and respond to issues in real-time.
-
-11. **Failover and Redundancy**:
-
-    - Ensure high availability by setting up failover mechanisms and redundancy for critical components such as web servers, databases, and load balancers.
-
-12. **Database Caching and Query Optimization**:
-
-    - Use caching layers like Redis or Memcached to cache frequently queried data and results. Optimize database queries to minimize resource usage.
-
-13. **Content Delivery Strategies**:
-
-    - Explore strategies for delivering content efficiently, such as lazy loading, content pagination, and efficient data retrieval.
-
-14. **Content Management**:
-
-    - Implement content management strategies, such as purging expired pastes, archiving older data, and optimizing data retention policies.
-
-15. **Distributed Systems**:
-
-    - Consider a distributed architecture that spans multiple data centers or cloud regions for improved availability and disaster recovery.
-
-16. **Testing and Benchmarking**:
-
-    - Regularly test and benchmark your system's performance to identify bottlenecks and optimize resource allocation.
-
-Scaling a Pastebin system is an ongoing process that requires continuous monitoring, analysis, and adjustments to accommodate growing user demands. Depending on your specific requirements and resources, you may choose different scaling strategies.
-* TODO Sharding
+* Sharding
 Implementing database sharding in Node.js typically involves using a database management system that supports sharding, such as MongoDB or PostgreSQL. Below, I'll provide an example of sharding in Node.js using MongoDB, which is a NoSQL database known for its sharding capabilities.
 
-**Note**: This is a simplified example to illustrate the concept. In a production environment, database sharding involves more complex configurations and considerations.
+** Create a MongoDB Cluster
+Set up a MongoDB cluster with sharding enabled. This typically involves configuring multiple shard servers, a config server, and a router (mongos).
 
-1. **Install MongoDB and Node.js Packages**:
-
-   Make sure you have MongoDB installed and Node.js set up in your environment. Install the `mongodb` package for Node.js:
-
-   ```bash
-   npm install mongodb
-   ```
-
-2. **Create a MongoDB Cluster**:
-
-   Set up a MongoDB cluster with sharding enabled. This typically involves configuring multiple shard servers, a config server, and a router (mongos).
-
-3. **Connect to MongoDB**:
-
+** Connect to MongoDB
    Create a Node.js script to connect to your MongoDB cluster. Replace the connection string and database name with your own cluster details:
 
-   ```javascript
-   const { MongoClient } = require('mongodb');
+   #+begin_src js
+     const { MongoClient } = require('mongodb');
 
-   const uri = 'mongodb://<shard-1>:27017,<shard-2>:27017,<shard-3>:27017/?replicaSet=myReplicaSet';
-   const databaseName = 'mydb';
+     const uri = 'mongodb://<shard-1>:27017,<shard-2>:27017,<shard-3>:27017/?replicaSet=myReplicaSet';
+     const databaseName = 'mydb';
 
-   async function connectToMongo() {
-     const client = new MongoClient(uri, { useUnifiedTopology: true });
+     async function connectToMongo() {
+       const client = new MongoClient(uri, { useUnifiedTopology: true });
 
-     try {
-       await client.connect();
-       console.log('Connected to MongoDB');
+       try {
+	 await client.connect();
+	 console.log('Connected to MongoDB');
 
-       const db = client.db(databaseName);
+	 const db = client.db(databaseName);
 
-       // Perform database operations here
+	 // Perform database operations here
 
-     } finally {
-       await client.close();
-       console.log('Disconnected from MongoDB');
+       } finally {
+	 await client.close();
+	 console.log('Disconnected from MongoDB');
+       }
      }
-   }
 
-   connectToMongo();
-   ```
+     connectToMongo();
 
-4. **Create Sharded Collections**:
+   #+end_src
 
+** Create Sharded Collections
    In MongoDB, sharding involves distributing data across multiple shards. To shard a collection, you typically choose a shard key based on how you want to distribute the data.
 
-   ```javascript
-   async function createShardedCollection() {
-     const db = client.db(databaseName);
+   #+begin_src js
+     async function createShardedCollection() {
+       const db = client.db(databaseName);
 
-     // Create a sharded collection
-     await db.createCollection('myShardedCollection', {
-       shardKey: { _id: 'hashed' }, // Replace with your shard key
-     });
+       // Create a sharded collection
+       await db.createCollection('myShardedCollection', {
+	 shardKey: { _id: 'hashed' }, // Replace with your shard key
+       });
 
-     console.log('Sharded collection created');
-   }
+       console.log('Sharded collection created');
+     }
 
-   createShardedCollection();
-   ```
+     createShardedCollection();
 
-5. **Insert Data**:
+   #+end_src
 
+** Insert Data
    Insert data into your sharded collection. MongoDB will automatically distribute the data across the shards based on the shard key.
 
-   ```javascript
-   async function insertData() {
-     const db = client.db(databaseName);
-     const collection = db.collection('myShardedCollection');
+   #+begin_src js
+     async function insertData() {
+       const db = client.db(databaseName);
+       const collection = db.collection('myShardedCollection');
 
-     // Insert data into the sharded collection
-     const data = { _id: 1, name: 'Example Data' };
-     await collection.insertOne(data);
+       // Insert data into the sharded collection
+       const data = { _id: 1, name: 'Example Data' };
+       await collection.insertOne(data);
 
-     console.log('Data inserted into sharded collection');
-   }
+       console.log('Data inserted into sharded collection');
+     }
 
-   insertData();
-   ```
+     insertData();
 
-6. **Query Data**:
+   #+end_src
 
+** Query Data
    Querying data from a sharded collection is similar to querying a regular collection. MongoDB's routing (mongos) handles the distribution of queries to the appropriate shards.
+#+begin_src js
+  async function queryData() {
+    const db = client.db(databaseName);
+    const collection = db.collection('myShardedCollection');
 
-   ```javascript
-   async function queryData() {
-     const db = client.db(databaseName);
-     const collection = db.collection('myShardedCollection');
+    // Query data from the sharded collection
+    const result = await collection.findOne({ _id: 1 });
+    console.log('Query result:', result);
+  }
 
-     // Query data from the sharded collection
-     const result = await collection.findOne({ _id: 1 });
-     console.log('Query result:', result);
-   }
+  queryData();
 
-   queryData();
-   ```
-
-7. **Scaling and Configuration**:
-
-   As your data grows, you can add more shards to your MongoDB cluster. MongoDB's sharding configuration allows for horizontal scaling by distributing data across multiple shard servers.
-
-This example demonstrates the basic concept of database sharding using MongoDB in a Node.js environment. In a production setting, you would configure your MongoDB cluster for high availability, backup, and monitoring to ensure optimal performance and data distribution. Additionally, you would design your shard key based on your specific use case and data distribution requirements.
+#+end_src
+* Scaling?
+How do we scale the whole thing now?
+[[file:resources/microservice-Technical Diagram.drawio.png]]
 * Q/A
+1. Why HDFS is necessary for storing log and analytical live data?
+2. Describe the process of sharding.
+   
