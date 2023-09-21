@@ -625,7 +625,7 @@ networks:
 * Distributing Microservices
 [[file:resources/microservice-Nginx.drawio.png]]
 No, it is not complete!
-[[file:resources/microservice-DNS.drawio.png]]
+[[file:resources/DNS.png]]
 * DNS or Service Discovery
 ** Set DNS Server for each distributed system
 10.100.12.26
