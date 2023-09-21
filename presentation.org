@@ -24,7 +24,7 @@ We have the following endpoints in current monolithics structure.
   - GET /api/paste/content
 #+end_src
 
-And the following services.
+And the following jobs/business logic.
 #+begin_src text
   - Delete Expired Pastes
   - Generate Unique URL 
@@ -63,24 +63,45 @@ And the following services.
   app.use(cors());
 
   // Create a new paste
-  app.post('/api/paste', (req, res) => {
-    const content = req.body.content;
-    const expire_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-      const URL = generateUniqueURL(content);
+  const minioClient = new Minio.Client({
+      endPoint: 'minio',
+      port: 9000,
+      useSSL: false,
+      accessKey: 'wBl9YHNf6XXfdMbWu0MS',
+      secretKey: 'fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM',
+  });
 
-    db.query(
-      'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
-	[content, expire_at, URL],
-      (err, results) => {
-	if (err) {
-	  console.error('Error creating a paste: ' + err);
-	  res.status(500).json({ error: 'Internal server error' });
-	  return;
-	}
 
-	  res.status(201).json({ id: results.insertId, url: URL });
-      }
-    );
+  app.post('/api/v1/paste', async (req, res) => {
+      const content = req.body.content;
+      const filePath = req.file.path;
+      const expire_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+      const metaData = {
+	  'Content-Type': req.file.mimetype,
+      };
+
+      const bucketName = 'pasteContents'; 
+      const objectName = req.file.originalname;
+      await minioClient.fPutObject(bucketName, objectName, filePath, metaData);
+
+      const serverUrl = 'localhost:9000';
+      const objectURL = `${serverUrl}/${bucketName}/${objectName}`;
+
+      const URL = generateUniqueURL(objectURL);
+
+	db.query(
+	    'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
+	    [content, expire_at, URL],
+	(err, results) => {
+	    if (err) {
+		console.error('Error creating a paste: ' + err);
+		res.status(500).json({ error: 'Internal server error' });
+		return;
+	    }
+
+	    res.status(201).json({ id: results.insertId, url: URL });
+	});
   });
 
   // Create a new paste with expiry date
@@ -187,3 +208,191 @@ And the following services.
   });
 
 #+end_src
+* From monolith into microservice
+Note that, our microservice share the same database because there is no chance of a race condition among microservices so we won't have any overhead related to that. Our single mysql server will be hosted at ~http://10.100.12.26~.
+** PasteService (pasteService.js):
+This microservice handles paste creation, retrieval by ID, and deletion of old pastes.
+
+#+begin_src javascript
+  const express = require('express');
+  const mysql = require('mysql2');
+  const crypto = require('crypto');
+  const axios = require('axios');
+
+  const app = express();
+  const port = 3001; // Change the port for this service
+  const DATABASE_HOST = "https://10.100.12.26";
+  const DATABASE_USER = "abhidb";
+  const DATABASE_PASSWORD = "admin";
+  const DATABASE_NAME = "pastebin";
+
+  const db = mysql.createConnection({
+      host: DATABASE_HOST,
+      user: DATABASE_USER,
+      password: DATABASE_PASSWORD,
+      database: DATABASE_NAME
+  });
+
+  const minioClient = new Minio.Client({
+      endPoint: 'minio',
+      port: 9000,
+      useSSL: false,
+      accessKey: 'wBl9YHNf6XXfdMbWu0MS',
+      secretKey: 'fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM',
+  });
+
+
+  app.post('/api/v1/paste', async (req, res) => {
+      const content = req.body.content;
+      const filePath = req.file.path;
+      const expire_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+      const metaData = {
+	  'Content-Type': req.file.mimetype,
+      };
+
+      const bucketName = 'pasteContents'; 
+      const objectName = req.file.originalname;
+      await minioClient.fPutObject(bucketName, objectName, filePath, metaData);
+
+      const serverUrl = 'localhost:9000';
+      const objectURL = `${serverUrl}/${bucketName}/${objectName}`;
+
+      const URL = await axios.get("localhost:3002/api/v1/shortenURL", {
+	  params: {
+	      original_url : objectURL 
+	  }
+      });
+
+
+	db.query(
+	    'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
+	    [content, expire_at, URL],
+	(err, results) => {
+	    if (err) {
+		console.error('Error creating a paste: ' + err);
+		res.status(500).json({ error: 'Internal server error' });
+		return;
+	    }
+
+	    res.status(201).json({ id: results.insertId, url: URL });
+	});
+  });
+
+     app.listen(port, () => {
+       console.log(`PasteService listening on port ${port}`);
+     });
+
+#+end_src
+** ShorteningService (shorteningService.js):
+This microservice manages the URL shortening functionality.
+
+#+begin_src js
+     const express = require('express');
+     const crypto = require('crypto');
+
+     const app = express();
+     const port = 3002; // Change the port for this service
+
+     // ... ShorteningService code as in your original code ...
+    function generateUniqueURL(content) {
+	const timestamp = new Date().getTime().toString();
+	const uniqueString = content + timestamp;
+
+	const hash = crypto.createHash('sha256').update(uniqueString).digest('hex');
+
+	const uniqueURL = hash.slice(0, 6);
+	return uniqueURL;
+    }
+
+   // a periodic check (e.g., every hour)
+   const checkInterval = 60 * 60 * 1000; // 1 hour in milliseconds
+   setInterval(deleteExpiredPastes, checkInterval);
+
+    // Job to delete old pastes
+  function deleteExpiredPastes() {
+      const now = new Date();
+
+      db.query('DELETE FROM pastes WHERE expire_at <= ?', [now], (err, results) => {
+	  if (err) {
+	      console.error('Error deleting expired pastes: ' + err);
+	      return;
+	  }
+
+	  console.log(`Deleted ${results.affectedRows} expired pastes.`);
+      });
+  }
+  
+
+   app.listen(port, () => {
+       console.log(`Server listening on port ${port}`);
+   });
+
+   app.listen(port, () => {
+       console.log(`ShorteningService listening on port ${port}`);
+   });
+
+#+end_src
+
+** ContentService (contentService.js):
+This microservice retrieves paste content by URL.
+
+#+begin_src js
+    const express = require('express');
+    const mysql = require('mysql2');
+
+    const app = express();
+    const port = 3003; // Change the port for this service
+    const DATABASE_HOST = "localhost";
+    const DATABASE_USER = "abhidb";
+    const DATABASE_PASSWORD = "admin";
+    const DATABASE_NAME = "pastebin";
+
+    const db = mysql.createConnection({
+      host: DATABASE_HOST,
+      user: DATABASE_USER,
+      password: DATABASE_PASSWORD,
+      database: DATABASE_NAME
+    });
+
+  app.get('/api/paste/content', (req, res) => {
+      const URL = req.query.url;
+      console.log(`DEBUG: ${URL}`);
+
+      if (!URL) {
+	  return res.status(400).json({ error: 'URL parameter is missing' });
+      }
+
+      // Assuming you have a database table named 'pastes' with columns 'id' and 'content'
+      db.query('SELECT content FROM pastes WHERE URL = ?', [URL], (err, results) => {
+	  if (err) {
+	      console.error('Error retrieving content: ' + err);
+	      res.status(500).json({ error: 'Internal server error' });
+	      return;
+	  }
+
+	  if (results.length === 0) {
+	      res.status(404).json({ error: 'Paste not found' });
+	      return;
+	  }
+
+	  res.status(200).send(results[0].content);
+      });
+  });
+  app.listen(port, () => {
+      console.log(`ContentService listening on port ${port}`);
+  });
+  
+#+end_src
+** Executing
+Now, we have separated your code into three microservices. Each microservice can be run as a separate Node.js application by executing its respective JavaScript file (pasteService.js, shorteningService.js, and contentService.js) using the node command.
+
+#+begin_src bash
+  node pasteService.js
+  node shorteningService.js
+  node contentService.js
+#+end_src
+
+These microservices will run independently and serve their specific functionalities. We will no containerzie them and  then use a reverse proxy or an API gateway to route requests to the appropriate microservice based on the URL path. We will add logging-monitoring functionalities and finally, we will discuss on scaling.
+* Containerizing Mircoservices
+* Distributing Microservices
