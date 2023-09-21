@@ -27,5 +27,7 @@ And the following services.
 This is our current frontend.
 [[file:resources/v1-demo.png]]
 
+* V2 - Nginx as Reverse Proxy
+* V3 - Nginx as Load Balancer
 * Top Level Diagram
 [[./resources/top-level-diagram.png]]
