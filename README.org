@@ -1,3 +1,15 @@
+#+REVEAL_TRANS: None/Fade/Slide/Convex/Concave/Zoom
+#+REVEAL_THEME: Black/White/League/Sky/Beige/Simple/Serif/Blood/Night/Moon/Solarized
+#+REVEAL_ROOT: https://cdn.jsdelivr.net/npm/reveal.js
+
+
+#+SETUPFILE: https://fniessen.github.io/org-html-themes/org/theme-readtheorg.setup
+
+
+#+Title: Designing A Pastebin System
+#+Author: Abhijit Paul, Tashfia Jannath
+#+Email: bsse(1201,1223)@iit.du.ac.bd
+
 * Requirements
 ** Normal Requirements
 + Users should be able to paste contents (size<=50mb) and get an url for it.
@@ -208,6 +220,7 @@ And the following jobs/business logic.
 
 #+end_src
 ** Scaling Monolith
+
 [[file:resources/uwu.png]]
 
 * From monolith into microservice
@@ -476,6 +489,7 @@ networks:
 In the
 * Nginx as Reverse Proxy
 We use an Nginx reverse proxy in our Docker Compose setup to route requests to the microservices. 
+#+ATTR_HTML: :width 50% :height 50%
 [[file:resources/Nginx.png]]
 ** Explaining Nginx Configuration File
 1. Server Hostname resolution

@@ -1,0 +1,1421 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<!-- 2023-09-22 শুক্র 00:42 -->
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Designing A Pastebin System</title>
+<meta name="author" content="Abhijit Paul, Tashfia Jannath" />
+<meta name="generator" content="Org Mode" />
+<link rel="stylesheet" type="text/css" href="https://fniessen.github.io/org-html-themes/src/readtheorg_theme/css/htmlize.css"/>
+<link rel="stylesheet" type="text/css" href="https://fniessen.github.io/org-html-themes/src/readtheorg_theme/css/readtheorg.css"/>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
+<script type="text/javascript" src="https://fniessen.github.io/org-html-themes/src/lib/js/jquery.stickytableheaders.min.js"></script>
+<script type="text/javascript" src="https://fniessen.github.io/org-html-themes/src/readtheorg_theme/js/readtheorg.js"></script>
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">Designing A Pastebin System</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#orgbdd9ac3">1. Requirements</a>
+<ul>
+<li><a href="#org796fbb5">1.1. Normal Requirements</a></li>
+<li><a href="#orgff93164">1.2. Expected Requirements</a></li>
+<li><a href="#org1501acf">1.3. Exciting Requirements</a></li>
+</ul>
+</li>
+<li><a href="#orgb1ad2fd">2. Developing the Monolith</a>
+<ul>
+<li><a href="#org8642d43">2.1. Code Snippet</a></li>
+<li><a href="#org87b4623">2.2. Scaling Monolith</a></li>
+</ul>
+</li>
+<li><a href="#org37f1675">3. From monolith into microservice</a>
+<ul>
+<li><a href="#org545728b">3.1. PasteService (pasteService.js):</a></li>
+<li><a href="#org88c5cb7">3.2. ShorteningService (shorteningService.js):</a></li>
+<li><a href="#org4f83be0">3.3. ContentService (contentService.js):</a></li>
+<li><a href="#org5b789af">3.4. Executing</a></li>
+</ul>
+</li>
+<li><a href="#org7ea5abc">4. Containerizing Mircoservices</a>
+<ul>
+<li><a href="#org9708056">4.1. Dockerfile for PasteService (Dockerfile.paste):</a></li>
+<li><a href="#org3f822a9">4.2. docker-compose.yml</a></li>
+</ul>
+</li>
+<li><a href="#org212fb23">5. Nginx as Reverse Proxy</a>
+<ul>
+<li><a href="#orgb955ef9">5.1. Explaining Nginx Configuration File</a></li>
+<li><a href="#orgf6160ea">5.2. Nginx Configurations</a></li>
+<li><a href="#orgf8543c5">5.3. Updated docker-compose.yml</a></li>
+</ul>
+</li>
+<li><a href="#org48c2af1">6. Distributing Microservices</a></li>
+<li><a href="#org7bb0668">7. DNS or Service Discovery</a>
+<ul>
+<li><a href="#orgac008ae">7.1. Set DNS Server for each distributed system</a></li>
+<li><a href="#org4c79c8d">7.2. Setting up DNS Records</a></li>
+<li><a href="#org6f258aa">7.3. What is Zone?</a></li>
+</ul>
+</li>
+<li><a href="#org264b5bd">8. Replicating Server &amp; Updated DNS</a></li>
+<li><a href="#org3b75f9c">9. Load Balancing</a></li>
+<li><a href="#orge65d3d4">10. Caching</a>
+<ul>
+<li><a href="#org4b69266">10.1. Choose a Caching Layer</a></li>
+<li><a href="#orgc5ad825">10.2. Implementing Caching</a></li>
+</ul>
+</li>
+<li><a href="#org0518ad9">11. Indexing</a></li>
+<li><a href="#org05f5e8a">12. <span class="todo TODO">TODO</span> Analytics</a></li>
+<li><a href="#org40eb693">13. Messaging Queues</a>
+<ul>
+<li><a href="#org18db356">13.1. Use the Kafka producer to send analytical data to Kafka topics.</a></li>
+<li><a href="#org7d237ef">13.2. Consumer: Receiving Data from Kafka and Storing in HDFS</a></li>
+</ul>
+</li>
+<li><a href="#org529fed1">14. Sharding</a>
+<ul>
+<li><a href="#orgcea0449">14.1. Create a MongoDB Cluster</a></li>
+<li><a href="#orgf4cff9e">14.2. Connect to MongoDB</a></li>
+<li><a href="#org2f8f9de">14.3. Create Sharded Collections</a></li>
+<li><a href="#orgf6a08c8">14.4. Insert Data</a></li>
+<li><a href="#org70b5dd5">14.5. Query Data</a></li>
+</ul>
+</li>
+<li><a href="#orgc94c5ca">15. Scaling?</a></li>
+<li><a href="#org195e003">16. Q/A</a></li>
+</ul>
+</div>
+</div>
+
+<div id="outline-container-orgbdd9ac3" class="outline-2">
+<h2 id="orgbdd9ac3"><span class="section-number-2">1.</span> Requirements</h2>
+<div class="outline-text-2" id="text-1">
+</div>
+<div id="outline-container-org796fbb5" class="outline-3">
+<h3 id="org796fbb5"><span class="section-number-3">1.1.</span> Normal Requirements</h3>
+<div class="outline-text-3" id="text-1-1">
+<ul class="org-ul">
+<li>Users should be able to paste contents (size&lt;=50mb) and get an url for it.</li>
+<li>When the url pastes the url in their browser, the content corresponding to the url will be shown.</li>
+<li>Users can give expiration time for a url.</li>
+<li>Users can give custom urls.</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-orgff93164" class="outline-3">
+<h3 id="orgff93164"><span class="section-number-3">1.2.</span> Expected Requirements</h3>
+<div class="outline-text-3" id="text-1-2">
+<ul class="org-ul">
+<li>Exposing the service through REST APIs.</li>
+<li>The system should be available at demand.</li>
+<li>The system should be easily scalable.</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-org1501acf" class="outline-3">
+<h3 id="org1501acf"><span class="section-number-3">1.3.</span> Exciting Requirements</h3>
+<div class="outline-text-3" id="text-1-3">
+<p>
+<code>Analytics</code>: Recording system performance to test the system against different loads and optimize it.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-orgb1ad2fd" class="outline-2">
+<h2 id="orgb1ad2fd"><span class="section-number-2">2.</span> Developing the Monolith</h2>
+<div class="outline-text-2" id="text-2">
+<p>
+First we will develop a simple monolith of pastebin. The backend is in nodejs and the frontend is in Angular.
+The following is a demo video on our v1 pastebin.
+<a href="https://drive.google.com/file/d/1PIPV9YDk86QpfQ-kVqLJ5Wp47eGHvRzt/view?usp=drive_link">demo video link</a>
+</p>
+
+<p>
+We have the following endpoints in current monolithics structure.
+</p>
+<div class="org-src-container">
+<pre class="src src-text">- POST /api/paste
+- POST /api/paste/expiry
+- GET /api/paste/content/:id
+- GET /api/paste/content
+</pre>
+</div>
+
+<p>
+And the following jobs/business logic.
+</p>
+<div class="org-src-container">
+<pre class="src src-text">- Delete Expired Pastes
+- Generate Unique URL 
+</pre>
+</div>
+</div>
+<div id="outline-container-org8642d43" class="outline-3">
+<h3 id="org8642d43"><span class="section-number-3">2.1.</span> Code Snippet</h3>
+<div class="outline-text-3" id="text-2-1">
+<div class="org-src-container">
+<pre class="src src-js">const express = require('express');
+const mysql = require('mysql2');
+const cors = require('cors');
+const crypto = require('crypto');
+
+const app = express();
+const port = 3000;
+const DATABASE_HOST = "localhost";
+const DATABASE_USER = "abhidb";
+const DATABASE_PASSWORD = "admin";
+const DATABASE_NAME = "pastebin";
+
+
+const db = mysql.createConnection({
+  host: DATABASE_HOST,
+  user: DATABASE_USER,
+  password: DATABASE_PASSWORD,
+  database: DATABASE_NAME
+});
+
+db.connect((err) =&gt; {
+  if (err) {
+    console.error('Error connecting to the database: ' + err.stack);
+    return;
+  }
+  console.log('Connected to the database as id ' + db.threadId);
+});
+
+app.use(express.json());
+app.use(cors());
+
+// Create a new paste
+const minioClient = new Minio.Client({
+    endPoint: 'minio',
+    port: 9000,
+    useSSL: false,
+    accessKey: 'wBl9YHNf6XXfdMbWu0MS',
+    secretKey: 'fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM',
+});
+
+
+app.post('/api/v1/paste', async (req, res) =&gt; {
+    const content = req.body.content;
+    const filePath = req.file.path;
+    const expire_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    const metaData = {
+	'Content-Type': req.file.mimetype,
+    };
+
+    const bucketName = 'pasteContents'; 
+    const objectName = req.file.originalname;
+    await minioClient.fPutObject(bucketName, objectName, filePath, metaData);
+
+    const serverUrl = 'localhost:9000';
+    const objectURL = `${serverUrl}/${bucketName}/${objectName}`;
+
+    const URL = generateUniqueURL(objectURL);
+
+      db.query(
+	  'INSERT INTO pastes (minioURL, expire_at, URL) VALUES (?, ?, ?)',
+	  [objectURL, expire_at, URL],
+      (err, results) =&gt; {
+	  if (err) {
+	      console.error('Error creating a paste: ' + err);
+	      res.status(500).json({ error: 'Internal server error' });
+	      return;
+	  }
+
+	  res.status(201).json({ id: results.insertId, url: URL });
+      });
+});
+
+// Create a new paste with expiry date
+app.post('/api/paste/expiry', (req, res) =&gt; {
+    const content = req.body.content;
+    const expire_after_seconds = req.body.expiry; // In seconds
+    const expire_at = new Date(Date.now() + expire_after_seconds * 1000); // 24 hours
+    const URL = generateUniqueURL(content);
+
+  db.query(
+    'INSERT INTO pastes (content, expire_at, URL) VALUES (?, ?, ?)',
+      [content, expire_at, URL],
+    (err, results) =&gt; {
+      if (err) {
+	console.error('Error creating a paste: ' + err);
+	res.status(500).json({ error: 'Internal server error' });
+	return;
+      }
+
+	res.status(201).json({ id: results.insertId, url: URL });
+    }
+  );
+});
+
+// Retrieve a paste by ID
+app.get('/api/paste/content/:id', (req, res) =&gt; {
+  const id = req.params.id;
+
+  db.query('SELECT objectURL FROM pastes WHERE id = ?', [id], (err, results) =&gt; {
+    if (err) {
+      console.error('Error retrieving paste: ' + err);
+      res.status(500).json({ error: 'Internal server error' });
+      return;
+    }
+
+    if (results.length === 0) {
+      res.status(404).json({ error: 'Paste not found' });
+      return;
+    }
+      res.status(200).send({"content": results[0].content});
+  });
+});
+
+// Create a GET endpoint for retrieving content by URL
+app.get('/api/paste/content', (req, res) =&gt; {
+    const URL = req.query.url;
+    console.log(`DEBUG: ${URL}`);
+
+    if (!URL) {
+	return res.status(400).json({ error: 'URL parameter is missing' });
+    }
+
+    // Assuming you have a database table named 'pastes' with columns 'id' and 'content'
+    db.query('SELECT content FROM pastes WHERE URL = ?', [URL], (err, results) =&gt; {
+	if (err) {
+	    console.error('Error retrieving content: ' + err);
+	    res.status(500).json({ error: 'Internal server error' });
+	    return;
+	}
+
+	if (results.length === 0) {
+	    res.status(404).json({ error: 'Paste not found' });
+	    return;
+	}
+
+    res.status(200).send(results[0].content);
+  });
+});
+
+// Job to delete old pastes
+function deleteExpiredPastes() {
+  const now = new Date();
+
+  db.query('DELETE FROM pastes WHERE expire_at &lt;= ?', [now], (err, results) =&gt; {
+    if (err) {
+      console.error('Error deleting expired pastes: ' + err);
+      return;
+    }
+
+    console.log(`Deleted ${results.affectedRows} expired pastes.`);
+  });
+}
+
+
+// Function to generate a unique URL
+function generateUniqueURL(content) {
+  const timestamp = new Date().getTime().toString();
+  const uniqueString = content + timestamp;
+
+  const hash = crypto.createHash('sha256').update(uniqueString).digest('hex');
+
+  const uniqueURL = hash.slice(0, 6);
+  return uniqueURL;
+}
+
+
+
+// Set up a periodic check (e.g., every hour)
+const checkInterval = 60 * 60 * 1000; // 1 hour in milliseconds
+setInterval(deleteExpiredPastes, checkInterval);
+
+app.listen(port, () =&gt; {
+  console.log(`Server listening on port ${port}`);
+});
+
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org87b4623" class="outline-3">
+<h3 id="org87b4623"><span class="section-number-3">2.2.</span> Scaling Monolith</h3>
+<div class="outline-text-3" id="text-2-2">
+
+<div id="org8d68a75" class="figure">
+<p><img src="resources/uwu.png" alt="uwu.png" />
+</p>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org37f1675" class="outline-2">
+<h2 id="org37f1675"><span class="section-number-2">3.</span> From monolith into microservice</h2>
+<div class="outline-text-2" id="text-3">
+<p>
+Note that, our microservice share the same database because there is no chance of a race condition among microservices so we won't have any overhead related to that. Our single mysql server will be hosted at <code>http://10.100.12.26</code>.
+</p>
+</div>
+<div id="outline-container-org545728b" class="outline-3">
+<h3 id="org545728b"><span class="section-number-3">3.1.</span> PasteService (pasteService.js):</h3>
+<div class="outline-text-3" id="text-3-1">
+<p>
+This microservice handles paste creation, retrieval by ID, and deletion of old pastes.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-javascript">const express = require('express');
+const mysql = require('mysql2');
+const crypto = require('crypto');
+const axios = require('axios');
+
+const app = express();
+const port = 3001; // Change the port for this service
+const DATABASE_HOST = "mysql";
+const DATABASE_USER = "abhidb";
+const DATABASE_PASSWORD = "admin";
+const DATABASE_NAME = "pastebin";
+
+const db = mysql.createConnection({
+    host: DATABASE_HOST,
+    user: DATABASE_USER,
+    password: DATABASE_PASSWORD,
+    database: DATABASE_NAME
+});
+
+const minioClient = new Minio.Client({
+    endPoint: 'minio',
+    port: 9000,
+    useSSL: false,
+    accessKey: 'wBl9YHNf6XXfdMbWu0MS',
+    secretKey: 'fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM',
+});
+
+
+app.post('/api/v1/paste', async (req, res) =&gt; {
+    const content = req.body.content;
+    const filePath = req.file.path;
+    const expire_at = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    const metaData = {
+	'Content-Type': req.file.mimetype,
+    };
+
+    const bucketName = 'pasteContents'; 
+    const objectName = req.file.originalname;
+    await minioClient.fPutObject(bucketName, objectName, filePath, metaData);
+
+    const serverUrl = 'localhost:9000';
+    const objectURL = `${serverUrl}/${bucketName}/${objectName}`;
+
+    const URL = await axios.get("localhost:3002/api/v1/shortenURL", {
+	params: {
+	    original_url : objectURL 
+	}
+    });
+
+
+      db.query(
+	  'INSERT INTO pastes (objectURL, expire_at, URL) VALUES (?, ?, ?)',
+	  [content, expire_at, URL],
+      (err, results) =&gt; {
+	  if (err) {
+	      console.error('Error creating a paste: ' + err);
+	      res.status(500).json({ error: 'Internal server error' });
+	      return;
+	  }
+
+	  res.status(201).json({ id: results.insertId, url: URL });
+      });
+});
+
+   app.listen(port, () =&gt; {
+     console.log(`PasteService listening on port ${port}`);
+   });
+
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org88c5cb7" class="outline-3">
+<h3 id="org88c5cb7"><span class="section-number-3">3.2.</span> ShorteningService (shorteningService.js):</h3>
+<div class="outline-text-3" id="text-3-2">
+<p>
+This microservice manages the URL shortening functionality.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">   const express = require('express');
+   const crypto = require('crypto');
+
+   const app = express();
+   const port = 3002; // Change the port for this service
+
+   // ... ShorteningService code as in your original code ...
+  function generateUniqueURL(content) {
+      const timestamp = new Date().getTime().toString();
+      const uniqueString = content + timestamp;
+
+      const hash = crypto.createHash('sha256').update(uniqueString).digest('hex');
+
+      const uniqueURL = hash.slice(0, 6);
+      return uniqueURL;
+  }
+
+ // a periodic check (e.g., every hour)
+ const checkInterval = 60 * 60 * 1000; // 1 hour in milliseconds
+ setInterval(deleteExpiredPastes, checkInterval);
+
+  // Job to delete old pastes
+function deleteExpiredPastes() {
+    const now = new Date();
+
+    db.query('DELETE FROM pastes WHERE expire_at &lt;= ?', [now], (err, results) =&gt; {
+	if (err) {
+	    console.error('Error deleting expired pastes: ' + err);
+	    return;
+	}
+
+	console.log(`Deleted ${results.affectedRows} expired pastes.`);
+    });
+}
+
+
+ app.listen(port, () =&gt; {
+     console.log(`Server listening on port ${port}`);
+ });
+
+ app.listen(port, () =&gt; {
+     console.log(`ShorteningService listening on port ${port}`);
+ });
+
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org4f83be0" class="outline-3">
+<h3 id="org4f83be0"><span class="section-number-3">3.3.</span> ContentService (contentService.js):</h3>
+<div class="outline-text-3" id="text-3-3">
+<p>
+This microservice retrieves paste content by URL.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">    const express = require('express');
+    const mysql = require('mysql2');
+
+    const app = express();
+    const port = 3003; // Change the port for this service
+    const DATABASE_HOST = "mysql";
+    const DATABASE_USER = "abhidb";
+    const DATABASE_PASSWORD = "admin";
+    const DATABASE_NAME = "pastebin";
+
+    const db = mysql.createConnection({
+      host: DATABASE_HOST,
+      user: DATABASE_USER,
+      password: DATABASE_PASSWORD,
+      database: DATABASE_NAME
+    });
+
+app.get('/getObject', async (req, res) =&gt; {
+    const bucketName = '';
+    const objectName = await db.query(
+	  'SELECT objectURL from pastes WHERE URL=?',[URL]);
+
+    const res = await minioClient.getObject(bucketName, objectName);
+    res.setHeader('Content-Type', 'image/jpeg'); // Adjust as needed
+    dataStream.pipe(res);
+});
+
+  app.listen(port, () =&gt; {
+      console.log(`ContentService listening on port ${port}`);
+  });
+
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org5b789af" class="outline-3">
+<h3 id="org5b789af"><span class="section-number-3">3.4.</span> Executing</h3>
+<div class="outline-text-3" id="text-3-4">
+<p>
+Now, we have separated your code into three microservices. Each microservice can be run as a separate Node.js application by executing its respective JavaScript file (pasteService.js, shorteningService.js, and contentService.js) using the node command.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-bash">node pasteService.js
+node shorteningService.js
+node contentService.js
+</pre>
+</div>
+
+<p>
+These microservices will run independently and serve their specific functionalities. We will no containerzie them and  then use a reverse proxy or an API gateway to route requests to the appropriate microservice based on the URL path. We will add logging-monitoring functionalities and finally, we will discuss on scaling.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org7ea5abc" class="outline-2">
+<h2 id="org7ea5abc"><span class="section-number-2">4.</span> Containerizing Mircoservices</h2>
+<div class="outline-text-2" id="text-4">
+
+<div id="org43d17fa" class="figure">
+<p><img src="resources/initial.png" alt="initial.png" />
+</p>
+</div>
+</div>
+<div id="outline-container-org9708056" class="outline-3">
+<h3 id="org9708056"><span class="section-number-3">4.1.</span> Dockerfile for PasteService (Dockerfile.paste):</h3>
+<div class="outline-text-3" id="text-4-1">
+<div class="org-src-container">
+<pre class="src src-text">
+# Use an official Node.js runtime as a parent image
+FROM node:14
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the package.json and package-lock.json files to the container
+COPY package*.json ./
+
+# Install application dependencies
+RUN npm install
+
+# Copy the current directory contents into the container at /app
+COPY . .
+
+# Specify the port number the container should expose
+EXPOSE 3001
+
+# Define environment variable
+ENV NODE_ENV production
+
+# Command to run the application
+CMD ["node", "pasteService.js"]
+
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org3f822a9" class="outline-3">
+<h3 id="org3f822a9"><span class="section-number-3">4.2.</span> docker-compose.yml</h3>
+<div class="outline-text-3" id="text-4-2">
+<div class="org-src-container">
+<pre class="src src-text">version: '3'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_DATABASE: 'DeSo'
+      MYSQL_USER: 'abhidb'
+      MYSQL_PASSWORD: 'admin'
+      MYSQL_ROOT_PASSWORD: 'admin'
+    networks:
+      - deso-post-service-network
+
+  paste-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.paste
+    ports:
+      - "3001:3001"
+    networks:
+      - deso-post-service-network
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - /data
+    networks:
+      - deso-post-service-network
+    environment:
+      MINIO_ROOT_USER: wBl9YHNf6XXfdMbWu0MS
+      MINIO_ROOT_PASSWORD: fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM
+    command: ["server", "--console-address", ":9001", "/data"]
+
+  shortening-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.shortening
+    ports:
+      - "3002:3002"
+
+  content-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.content
+    ports:
+      - "3003:3003"
+    depends_on:
+      - paste-service
+      - shortening-service
+
+networks:
+  deso-post-service-network:
+</pre>
+</div>
+
+<p>
+In the
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org212fb23" class="outline-2">
+<h2 id="org212fb23"><span class="section-number-2">5.</span> Nginx as Reverse Proxy</h2>
+<div class="outline-text-2" id="text-5">
+<p>
+We use an Nginx reverse proxy in our Docker Compose setup to route requests to the microservices. 
+</p>
+
+<div id="orgfa206ff" class="figure">
+<p><img src="resources/Nginx.png" alt="Nginx.png" width="50%" height="50%" />
+</p>
+</div>
+</div>
+<div id="outline-container-orgb955ef9" class="outline-3">
+<h3 id="orgb955ef9"><span class="section-number-3">5.1.</span> Explaining Nginx Configuration File</h3>
+<div class="outline-text-3" id="text-5-1">
+<ol class="org-ol">
+<li>Server Hostname resolution</li>
+<li>Nginx user</li>
+<li>Multiprocess Nginx with 1024 connections.</li>
+<li>DNS Lookup.</li>
+<li>Host-Based Routing.</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgf6160ea" class="outline-3">
+<h3 id="orgf6160ea"><span class="section-number-3">5.2.</span> Nginx Configurations</h3>
+<div class="outline-text-3" id="text-5-2">
+<div class="org-src-container">
+<pre class="src src-text">user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+		      '$status $body_bytes_sent "$http_referer" '
+		      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+    sendfile on;
+
+    # Route requests to PasteService
+    server {
+	listen 80;
+	server_name extended-pastebin.com;
+
+	location /paste {
+	    proxy_pass http://paste-service:3001;
+	}
+    }
+
+    # Route requests to ShorteningService
+    server {
+	listen 80;
+	server_name extended-pastebin.com;
+
+	location /shorten {
+	    proxy_pass http://shortening-service:3002;
+	}
+    }
+
+    # Route requests to ContentService
+    server {
+	listen 80;
+	server_name extended-pastebin.com;
+
+	location /content {
+	    proxy_pass http://content-service:3003;
+	}
+    }
+
+    # Handle 404 errors
+    error_page 404 /404.html;
+    location = /404.html {
+	root /usr/share/nginx/html;
+    }
+
+    # Handle 500 errors
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+	root /usr/share/nginx/html;
+    }
+}
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orgf8543c5" class="outline-3">
+<h3 id="orgf8543c5"><span class="section-number-3">5.3.</span> Updated docker-compose.yml</h3>
+<div class="outline-text-3" id="text-5-3">
+<div class="org-src-container">
+<pre class="src src-text">version: '3'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_DATABASE: 'DeSo'
+      MYSQL_USER: 'abhidb'
+      MYSQL_PASSWORD: 'admin'
+      MYSQL_ROOT_PASSWORD: 'admin'
+    networks:
+      - deso-post-service-network
+
+  paste-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.paste
+    ports:
+      - "3001:3001"
+    networks:
+      - deso-post-service-network
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - /data
+    networks:
+      - deso-post-service-network
+    environment:
+      MINIO_ROOT_USER: wBl9YHNf6XXfdMbWu0MS
+      MINIO_ROOT_PASSWORD: fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM
+    command: ["server", "--console-address", ":9001", "/data"]
+
+  shortening-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.shortening
+    ports:
+      - "3002:3002"
+    networks:
+      - deso-post-service-network
+
+  content-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.content
+    ports:
+      - "3003:3003"
+    depends_on:
+      - paste-service
+      - shortening-service
+    networks:
+      - deso-post-service-network
+
+  nginx:
+    image: nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - deso-post-service-network
+
+networks:
+  deso-post-service-network:
+
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org48c2af1" class="outline-2">
+<h2 id="org48c2af1"><span class="section-number-2">6.</span> Distributing Microservices</h2>
+<div class="outline-text-2" id="text-6">
+<p>
+<img src="resources/Nginx.png" alt="Nginx.png" />
+No, it is not complete!
+<img src="resources/DNS.png" alt="DNS.png" />
+</p>
+</div>
+</div>
+<div id="outline-container-org7bb0668" class="outline-2">
+<h2 id="org7bb0668"><span class="section-number-2">7.</span> DNS or Service Discovery</h2>
+<div class="outline-text-2" id="text-7">
+</div>
+<div id="outline-container-orgac008ae" class="outline-3">
+<h3 id="orgac008ae"><span class="section-number-3">7.1.</span> Set DNS Server for each distributed system</h3>
+<div class="outline-text-3" id="text-7-1">
+<p>
+10.100.12.26
+Ensure that DNS or service discovery is set up correctly so that Nginx can resolve the backend server addresses.
+</p>
+<div class="org-src-container">
+<pre class="src src-bash">sudo nano /etc/resolv.conf
+
+nameserver 10.100.32.12
+nameserver 8.8.4.4
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-org4c79c8d" class="outline-3">
+<h3 id="org4c79c8d"><span class="section-number-3">7.2.</span> Setting up DNS Records</h3>
+<div class="outline-text-3" id="text-7-2">
+<p>
+We can set up a DNS server using Bind9. An example of the bind9 <code>Zone File</code> can be:
+</p>
+<ul class="org-ul">
+<li>Caching</li>
+<li>Authority Delegation</li>
+<li>Distributed DNS</li>
+<li>Type of DNS Record (e.g. IN, A)</li>
+</ul>
+<div class="org-src-container">
+<pre class="src src-bash">$TTL 1D
+@   IN SOA  ns1.example.com. admin.example.com. (
+    2023091501 ; Serial
+    1D         ; Refresh
+    2H         ; Retry
+    1W         ; Expire
+    1D )       ; Minimum TTL
+
+; Name Servers
+@   IN  NS  ns1.example.com.
+
+; DNS Server Hostname to IP Address Mapping
+ns1.example.com. IN  A   &lt;IP_Address_of_NS1&gt;
+
+; Content Backend Servers
+content-service-server1.example.com.  IN  A  &lt;IP_Address_Server1&gt;
+content-service-server2.example.com.  IN  A  &lt;IP_Address_Server2&gt;
+content-service-server3.example.com.  IN  A  &lt;IP_Address_Server3&gt;
+content-service-server4.example.com.  IN  A  &lt;IP_Address_Server4&gt;
+
+; Shortening Backend Servers
+shortening-service-server1.example.com.  IN  A  &lt;IP_Address_Server1&gt;
+shortening-service-server2.example.com.  IN  A  &lt;IP_Address_Server2&gt;
+
+; Paste Backend Servers
+paste-service-server1.example.com.  IN  A  &lt;IP_Address_Server1&gt;
+paste-service-server2.example.com.  IN  A  &lt;IP_Address_Server2&gt;
+
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org6f258aa" class="outline-3">
+<h3 id="org6f258aa"><span class="section-number-3">7.3.</span> What is Zone?</h3>
+<div class="outline-text-3" id="text-7-3">
+<div class="org-src-container">
+<pre class="src src-text">zone "example.com" {
+    type master;
+    file "/etc/bind/zones/example.com.zone"; // Path to your zone file
+};
+
+</pre>
+</div>
+
+<p>
+Docker Swarm and Kubernetes provide service discovery out of the box.
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org264b5bd" class="outline-2">
+<h2 id="org264b5bd"><span class="section-number-2">8.</span> Replicating Server &amp; Updated DNS</h2>
+<div class="outline-text-2" id="text-8">
+<ol class="org-ol">
+<li>We use only one reverse proxy and DNS server for ease of demonstration. In practice, more are used based on geographical location of the servers.</li>
+<li>The database is not still just one server. We scale it later on.</li>
+</ol>
+
+<div id="org89aca5b" class="figure">
+<p><img src="resources/replication.png" alt="replication.png" />
+</p>
+</div>
+</div>
+</div>
+<div id="outline-container-org3b75f9c" class="outline-2">
+<h2 id="org3b75f9c"><span class="section-number-2">9.</span> Load Balancing</h2>
+<div class="outline-text-2" id="text-9">
+<p>
+Use Nginx to implement load balancing if needed. Nginx can distribute incoming requests evenly among multiple backend servers to balance the load.
+</p>
+
+<ul class="org-ul">
+<li>Round robin is the default algorithm for load balancing.</li>
+</ul>
+
+<div class="org-src-container">
+<pre class="src src-text">  upstream content_backend {
+      server content-service-server1;
+      server content-service-server2;
+      server content-service-server3;
+      server content-service-server4;
+  }
+
+  upstream shortening_backend {
+      server shortening-service-server1;
+      server shortening-service-server2;
+  }
+upstream paste_backend {
+    server paste-service-server1;
+    server paste-service-server2;
+    }
+
+</pre>
+</div>
+
+<p>
+So now, we will replace this
+</p>
+<div class="org-src-container">
+<pre class="src src-text">server {
+    listen 80;
+    server_name extended-pastebin.com;
+
+    location /paste {
+	proxy_pass http://paste_backend:3001;
+    }
+}
+
+</pre>
+</div>
+
+<p>
+with this.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-text">server {
+    listen 80;
+    server_name extended-pastebin.com;
+
+    location /paste {
+	proxy_pass http://paste_backend:3001;
+    }
+}
+
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-orge65d3d4" class="outline-2">
+<h2 id="orge65d3d4"><span class="section-number-2">10.</span> Caching</h2>
+<div class="outline-text-2" id="text-10">
+</div>
+<div id="outline-container-org4b69266" class="outline-3">
+<h3 id="org4b69266"><span class="section-number-3">10.1.</span> Choose a Caching Layer</h3>
+<div class="outline-text-3" id="text-10-1">
+<p>
+There are different types of caching layers you can use:
+</p>
+
+<ol class="org-ol">
+<li>In-Memory Caching: This stores cache data in memory, making it extremely fast but limited by available RAM. Popular in-memory caching solutions include Redis and Memcached.</li>
+
+<li>Content Delivery Networks (CDNs): CDNs like Cloudflare and Akamai cache static assets (e.g., images, CSS, and JavaScript) at edge locations, reducing latency for users worldwide.</li>
+
+<li>Database Query Caching: Some databases offer built-in query caching. For example, MySQL has query cache functionality that can cache frequently accessed query results.</li>
+
+<li>HTTP Caching: Use HTTP headers like Cache-Control and ETag to instruct clients (browsers) to cache responses for a certain period.</li>
+</ol>
+</div>
+</div>
+<div id="outline-container-orgc5ad825" class="outline-3">
+<h3 id="orgc5ad825"><span class="section-number-3">10.2.</span> Implementing Caching</h3>
+<div class="outline-text-3" id="text-10-2">
+<p>
+We will use Redis for caching. Here, we are caching minio objects against their URL for faster retrieval. Usually, we can deploy redis on a dedicated server of its own for caching.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js"> const redis = require('redis');
+ const client = redis.createClient();
+
+ // Function to cache a (Minio URL, Minio Object) pair
+ function cacheMinioObject(minioURL, minioObject) {
+     client.set(minioURL, minioObject);
+ }
+
+ // Function to retrieve a Minio Object from cache
+ function getMinioObject(minioURL, callback) {
+     client.get(minioURL, (err, minioObject) =&gt; {
+	 if (err) {
+	     console.error('Error retrieving from cache:', err);
+	     callback(null); // Handle the error gracefully
+	 } else {
+	     callback(minioObject); // Return the Minio Object from cache
+	 }
+     });
+ }
+
+
+app.get('/getObject', async (req, res) =&gt; {
+    getMinioObject(minioURL, (cachedMinioObject) =&gt; {
+     if (cachedMinioObject) {
+	 res.setHeader('Content-Type', 'image/jpeg'); // Adjust as needed
+	 dataStream.pipe(cachedMinioObject);
+     } else {
+     const bucketName = 'pastes';
+     const objectName = await db.query(
+	   'SELECT objectURL from pastes WHERE URL=?',[URL]);
+
+     const res = await minioClient.getObject(bucketName, objectName);
+     res.setHeader('Content-Type', 'image/jpeg'); // Adjust as needed
+     dataStream.pipe(res);
+     }
+ });
+
+ });
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-org0518ad9" class="outline-2">
+<h2 id="org0518ad9"><span class="section-number-2">11.</span> Indexing</h2>
+<div class="outline-text-2" id="text-11">
+<p>
+We will index on the short<sub>url</sub> table. 
+<img src="resources/table.png" alt="table.png" />
+We will do secondary indexing on custom<sub>url</sub>.
+</p>
+</div>
+</div>
+<div id="outline-container-org05f5e8a" class="outline-2">
+<h2 id="org05f5e8a"><span class="section-number-2">12.</span> <span class="todo TODO">TODO</span> Analytics</h2>
+<div class="outline-text-2" id="text-12">
+<p>
+HDFS storage for analytical data.
+</p>
+<div class="org-src-container">
+<pre class="src src-js">  const hdfs = require('hdfs');
+
+// Configure HDFS connection
+const hdfsClient = hdfs.createClient({
+  host: 'your-hdfs-host', // HDFS host address
+  port: 9000,              // HDFS port (default is 9000)
+  user: 'hdfs',            // HDFS user (usually 'hdfs' or 'your-username')
+});
+
+// Define the data to be stored
+const analyticalData = {
+  // Your analytical data in JSON format
+  timestamp: Date.now(),
+  user_id: 'user123',
+  action: 'view_paste',
+  paste_id: 'paste456',
+  // Add more fields as needed
+};
+
+// Convert data to JSON string
+const jsonData = JSON.stringify(analyticalData);
+
+// Define the HDFS file path where data will be stored
+const hdfsFilePath = '/user/hadoop/pastebin_analytics.json'; // Adjust the path as needed
+
+// Write data to HDFS
+hdfsClient.writeFile(hdfsFilePath, jsonData, (err) =&gt; {
+  if (err) {
+    console.error('Error writing to HDFS:', err);
+  } else {
+    console.log('Data successfully written to HDFS.');
+  }
+});
+
+// Close the HDFS client (optional)
+hdfsClient.close();
+
+</pre>
+</div>
+
+<p>
+But it has an issue and that is - the hard coupling between the HDFS and the servers. Considering that logging information later does not affect the system in any manner, such hard coupling relationship is unnecessary.
+</p>
+
+<p>
+So we will <code>decouple</code> the HDFS logger from the servers using messgaing queue. Specially because streaming data and realy life analytical data is coming from different sources here. So using channels with messaging queue is a very beneficial design choice.
+</p>
+</div>
+</div>
+<div id="outline-container-org40eb693" class="outline-2">
+<h2 id="org40eb693"><span class="section-number-2">13.</span> Messaging Queues</h2>
+<div class="outline-text-2" id="text-13">
+<p>
+Integrating HDFS with Apache Kafka in a distributed system is a common practice for streaming data ingestion and storage. This allows you to capture and store real-time analytical data from various sources. Below, I'll provide a high-level overview and code examples for integrating HDFS and Kafka in a Node.js application.
+</p>
+</div>
+
+
+
+<div id="outline-container-org18db356" class="outline-3">
+<h3 id="org18db356"><span class="section-number-3">13.1.</span> Use the Kafka producer to send analytical data to Kafka topics.</h3>
+<div class="outline-text-3" id="text-13-1">
+<p>
+Each server is a producer of log information. So they will contain the following code.
+</p>
+<div class="org-src-container">
+<pre class="src src-js">const kafka = require('kafka-node');
+const Producer = kafka.Producer;
+const client = new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }); // Replace with your Kafka broker address
+const producer = new Producer(client);
+
+producer.on('ready', () =&gt; {
+  const payloads = [
+    {
+      topic: 'analytical_data_topic',
+      messages: 'Your analytical data JSON string',
+    },
+  ];
+
+  producer.send(payloads, (err, data) =&gt; {
+    if (err) {
+      console.error('Error sending data to Kafka:', err);
+    } else {
+      console.log('Data sent to Kafka:', data);
+    }
+  });
+});
+
+producer.on('error', (err) =&gt; {
+  console.error('Kafka producer error:', err);
+});
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org7d237ef" class="outline-3">
+<h3 id="org7d237ef"><span class="section-number-3">13.2.</span> Consumer: Receiving Data from Kafka and Storing in HDFS</h3>
+<div class="outline-text-3" id="text-13-2">
+<p>
+Using a Kafka consumer to receive data from Kafka topics and store it in HDFS.
+</p>
+
+<p>
+The consumer downloads the data from kafka and saves it in HDFS storage.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">const kafka = require('kafka-node');
+const Consumer = kafka.Consumer;
+const hdfs = require('hdfs');
+const hdfsClient = hdfs.createClient({
+  host: 'your-hdfs-host', // Replace with your HDFS host address
+  port: 9000,             // HDFS port (default is 9000)
+  user: 'hdfs',           // HDFS user (usually 'hdfs' or your username)
+});
+
+const topics = [{ topic: 'analytical_data_topic' }]; // Replace with your Kafka topic(s)
+const options = { autoCommit: true, groupId: 'your-consumer-group' }; // Configure your consumer group
+
+const consumer = new Consumer(new kafka.KafkaClient({ kafkaHost: 'your-kafka-broker' }), topics, options);
+
+consumer.on('message', (message) =&gt; {
+  // Received message from Kafka
+  const analyticalData = JSON.parse(message.value);
+
+  // Define the HDFS file path where data will be stored
+  const hdfsFilePath = '/user/hadoop/pastebin_analytics.json'; // Adjust the path as needed
+
+  // Convert data to JSON string
+  const jsonData = JSON.stringify(analyticalData);
+
+  // Write data to HDFS
+  hdfsClient.writeFile(hdfsFilePath, jsonData, (err) =&gt; {
+    if (err) {
+      console.error('Error writing to HDFS:', err);
+    } else {
+      console.log('Data successfully written to HDFS.');
+    }
+  });
+});
+
+consumer.on('error', (err) =&gt; {
+  console.error('Kafka consumer error:', err);
+});
+
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org529fed1" class="outline-2">
+<h2 id="org529fed1"><span class="section-number-2">14.</span> Sharding</h2>
+<div class="outline-text-2" id="text-14">
+<p>
+Implementing database sharding in Node.js typically involves using a database management system that supports sharding, such as MongoDB or PostgreSQL. Below, I'll provide an example of sharding in Node.js using MongoDB, which is a NoSQL database known for its sharding capabilities.
+</p>
+</div>
+
+<div id="outline-container-orgcea0449" class="outline-3">
+<h3 id="orgcea0449"><span class="section-number-3">14.1.</span> Create a MongoDB Cluster</h3>
+<div class="outline-text-3" id="text-14-1">
+<p>
+Set up a MongoDB cluster with sharding enabled. This typically involves configuring multiple shard servers, a config server, and a router (mongos).
+</p>
+</div>
+</div>
+
+<div id="outline-container-orgf4cff9e" class="outline-3">
+<h3 id="orgf4cff9e"><span class="section-number-3">14.2.</span> Connect to MongoDB</h3>
+<div class="outline-text-3" id="text-14-2">
+<p>
+Create a Node.js script to connect to your MongoDB cluster. Replace the connection string and database name with your own cluster details:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">const { MongoClient } = require('mongodb');
+
+const uri = 'mongodb://&lt;shard-1&gt;:27017,&lt;shard-2&gt;:27017,&lt;shard-3&gt;:27017/?replicaSet=myReplicaSet';
+const databaseName = 'mydb';
+
+async function connectToMongo() {
+  const client = new MongoClient(uri, { useUnifiedTopology: true });
+
+  try {
+    await client.connect();
+    console.log('Connected to MongoDB');
+
+    const db = client.db(databaseName);
+
+    // Perform database operations here
+
+  } finally {
+    await client.close();
+    console.log('Disconnected from MongoDB');
+  }
+}
+
+connectToMongo();
+
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org2f8f9de" class="outline-3">
+<h3 id="org2f8f9de"><span class="section-number-3">14.3.</span> Create Sharded Collections</h3>
+<div class="outline-text-3" id="text-14-3">
+<p>
+In MongoDB, sharding involves distributing data across multiple shards. To shard a collection, you typically choose a shard key based on how you want to distribute the data.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">async function createShardedCollection() {
+  const db = client.db(databaseName);
+
+  // Create a sharded collection
+  await db.createCollection('myShardedCollection', {
+    shardKey: { _id: 'hashed' }, // Replace with your shard key
+  });
+
+  console.log('Sharded collection created');
+}
+
+createShardedCollection();
+
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-orgf6a08c8" class="outline-3">
+<h3 id="orgf6a08c8"><span class="section-number-3">14.4.</span> Insert Data</h3>
+<div class="outline-text-3" id="text-14-4">
+<p>
+Insert data into your sharded collection. MongoDB will automatically distribute the data across the shards based on the shard key.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-js">async function insertData() {
+  const db = client.db(databaseName);
+  const collection = db.collection('myShardedCollection');
+
+  // Insert data into the sharded collection
+  const data = { _id: 1, name: 'Example Data' };
+  await collection.insertOne(data);
+
+  console.log('Data inserted into sharded collection');
+}
+
+insertData();
+
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-org70b5dd5" class="outline-3">
+<h3 id="org70b5dd5"><span class="section-number-3">14.5.</span> Query Data</h3>
+<div class="outline-text-3" id="text-14-5">
+<p>
+Querying data from a sharded collection is similar to querying a regular collection. MongoDB's routing (mongos) handles the distribution of queries to the appropriate shards.
+</p>
+<div class="org-src-container">
+<pre class="src src-js">async function queryData() {
+  const db = client.db(databaseName);
+  const collection = db.collection('myShardedCollection');
+
+  // Query data from the sharded collection
+  const result = await collection.findOne({ _id: 1 });
+  console.log('Query result:', result);
+}
+
+queryData();
+
+</pre>
+</div>
+</div>
+</div>
+</div>
+<div id="outline-container-orgc94c5ca" class="outline-2">
+<h2 id="orgc94c5ca"><span class="section-number-2">15.</span> Scaling?</h2>
+<div class="outline-text-2" id="text-15">
+<p>
+How do we scale the whole thing now?
+<img src="resources/scaling.png" alt="scaling.png" />
+</p>
+</div>
+</div>
+<div id="outline-container-org195e003" class="outline-2">
+<h2 id="org195e003"><span class="section-number-2">16.</span> Q/A</h2>
+<div class="outline-text-2" id="text-16">
+<ol class="org-ol">
+<li>Why HDFS is necessary for storing log and analytical live data?</li>
+<li>Describe the process of sharding.</li>
+</ol>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="author">Author: Abhijit Paul, Tashfia Jannath</p>
+<p class="date">Created: 2023-09-22 শুক্র 00:42</p>
+<p class="validation"><a href="https://validator.w3.org/check?uri=referer">Validate</a></p>
+</div>
+</body>
+</html>
