@@ -395,4 +395,94 @@ Now, we have separated your code into three microservices. Each microservice can
 
 These microservices will run independently and serve their specific functionalities. We will no containerzie them and  then use a reverse proxy or an API gateway to route requests to the appropriate microservice based on the URL path. We will add logging-monitoring functionalities and finally, we will discuss on scaling.
 * Containerizing Mircoservices
+** Dockerfile for PasteService (Dockerfile.paste):
+#+begin_src text
+  
+# Use an official Node.js runtime as a parent image
+FROM node:14
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the package.json and package-lock.json files to the container
+COPY package*.json ./
+
+# Install application dependencies
+RUN npm install
+
+# Copy the current directory contents into the container at /app
+COPY . .
+
+# Specify the port number the container should expose
+EXPOSE 3001
+
+# Define environment variable
+ENV NODE_ENV production
+
+# Command to run the application
+CMD ["node", "pasteService.js"]
+
+#+end_src
+** docker-compose.yml
+#+begin_src text
+version: '3'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_DATABASE: 'DeSo'
+      MYSQL_USER: 'abhidb'
+      MYSQL_PASSWORD: 'admin'
+      MYSQL_ROOT_PASSWORD: 'admin'
+    networks:
+      - deso-post-service-network
+
+  paste-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.paste
+    ports:
+      - "3001:3001"
+    networks:
+      - deso-post-service-network
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - /data
+    networks:
+      - deso-post-service-network
+    environment:
+      MINIO_ROOT_USER: wBl9YHNf6XXfdMbWu0MS
+      MINIO_ROOT_PASSWORD: fpmlcbSbmge864KjPCwLn3WJ6PvQzblhqPCs8zaM
+    command: ["server", "--console-address", ":9001", "/data"]
+
+  shortening-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.shortening
+    ports:
+      - "3002:3002"
+
+  content-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.content
+    ports:
+      - "3003:3003"
+    depends_on:
+      - paste-service
+      - shortening-service
+
+networks:
+  deso-post-service-network:
+#+end_src
+
+In the
 * Distributing Microservices
