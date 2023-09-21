@@ -383,7 +383,7 @@ Now, we have separated your code into three microservices. Each microservice can
 
 These microservices will run independently and serve their specific functionalities. We will no containerzie them and  then use a reverse proxy or an API gateway to route requests to the appropriate microservice based on the URL path. We will add logging-monitoring functionalities and finally, we will discuss on scaling.
 * Containerizing Mircoservices
-[[file:resources/microservice-Initial Microservice.drawio.png]]
+[[file:resources/initial.png]]
 ** Dockerfile for PasteService (Dockerfile.paste):
 #+begin_src text
   
@@ -623,7 +623,7 @@ networks:
   
 #+end_src
 * Distributing Microservices
-[[file:resources/microservice-Nginx.drawio.png]]
+[[file:resources/Nginx.png]]
 No, it is not complete!
 [[file:resources/DNS.png]]
 * DNS or Service Discovery
@@ -686,7 +686,7 @@ Docker Swarm and Kubernetes provide service discovery out of the box.
 * Replicating Server & Updated DNS
 1. We use only one reverse proxy and DNS server for ease of demonstration. In practice, more are used based on geographical location of the servers.
 2. The database is not still just one server. We scale it later on.
-[[file:resources/microservice-Replication.drawio.png]]
+[[file:resources/replication.png]]
 * Load Balancing
 Use Nginx to implement load balancing if needed. Nginx can distribute incoming requests evenly among multiple backend servers to balance the load.
 
@@ -793,7 +793,7 @@ We will use Redis for caching. Here, we are caching minio objects against their 
 #+end_src
 * Indexing
 We will index on the short_url table. 
-[[file:resources/microservice-Table Schema.drawio.png]]
+[[file:resources/table.png]]
 We will do secondary indexing on custom_url.
 * TODO Analytics
 HDFS storage for analytical data.
@@ -1012,7 +1012,7 @@ Set up a MongoDB cluster with sharding enabled. This typically involves configur
 #+end_src
 * Scaling?
 How do we scale the whole thing now?
-[[file:resources/microservice-Technical Diagram.drawio.png]]
+[[file:resources/scaling.png]]
 * Q/A
 1. Why HDFS is necessary for storing log and analytical live data?
 2. Describe the process of sharding.
