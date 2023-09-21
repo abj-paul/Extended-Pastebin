@@ -208,7 +208,7 @@ And the following jobs/business logic.
 
 #+end_src
 ** Scaling Monolith
-[[file:resources/microservice-Scaling Monolith.drawio.png]]
+[[file:resources/uwu.png]]
 
 * From monolith into microservice
 Note that, our microservice share the same database because there is no chance of a race condition among microservices so we won't have any overhead related to that. Our single mysql server will be hosted at ~http://10.100.12.26~.
@@ -476,7 +476,7 @@ networks:
 In the
 * Nginx as Reverse Proxy
 We use an Nginx reverse proxy in our Docker Compose setup to route requests to the microservices. 
-[[file:resources/microservice-Nginx.drawio.png]]
+[[file:resources/Nginx.png]]
 ** Explaining Nginx Configuration File
 1. Server Hostname resolution
 2. Nginx user
