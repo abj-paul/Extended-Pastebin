@@ -1030,4 +1030,5 @@ How do we scale the whole thing now?
 * Q/A
 1. Why HDFS is necessary for storing log and analytical live data?
 2. Describe the process of sharding.
-   
+* Citations
+https://systemdesign.one/system-design-pastebin/
